@@ -6,8 +6,6 @@ editor: visual
 
 ### **Clinical Trial**
 
-trial push/commit of file
-
 ```{r}
 
 ```
