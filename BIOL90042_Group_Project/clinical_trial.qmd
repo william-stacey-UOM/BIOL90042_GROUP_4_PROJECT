@@ -6,6 +6,14 @@ editor: visual
 
 ### **Clinical Trial**
 
+Load the Gait data
+
 ```{r}
+library(tidyverse)
+load("data/prs.Rda")
+load("data/rnaseq.Rda")
+load("data/rnaseq_gene_info.Rda")
+load("data/drugscreen.Rda")
+load("data/gait.Rda")
 
 ```
