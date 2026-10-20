@@ -77,7 +77,7 @@ dge <- normLibSizes(dge, method = "TMM") # TMM = trimmed mean of M-values
 dge$samples
 ```
 
-TMM factor range 1.016 to 1.052 in control sample, showing minimal differences in RNA compositions. While in case group ranging from 0.88-1.075, showing a quite diverse different between case sample. These adjust the compositions of the library sizes and not measures the biological variability.
+TMM normalisations remove an extreme log fold changes and normalise it on remaining non-differentially expressed genes [@singh2024]. TMM factor range 1.016 to 1.052 in control sample, showing minimal differences in RNA compositions. While in case group ranging from 0.88-1.075, showing a quite diverse different between case sample. These adjust the compositions of the library sizes and not measures the biological variability.
 
 **Step 4: MDS Plot, visualise raw data**
 
@@ -143,7 +143,7 @@ top_tibble # Now we have a top_tibble dataframe that have gene names on each
 
 We classified the genes using decideTests() with Benjamini-Hochberg (BH) adjustment to account for multiple genes and an adjusted p-value threshold of 0.05. The adjustment using BH can control false positives among the results. There's other methods that can be used to normalise the data, which is Bonferroni correction however it can reduce the number of sets and introduce a false negative or type II error[@armstrong2014].
 
-TopTable () was used to get the numerical results from statistical testing comparing the control group to the case group, providing the p-value and adjusted p-value. We found 23 significant genes, with missing information on which genes are up-regulated or down-regulated. In the top_tibble, we found a missing gene name with Entrez ID "124907837". We used https://gtexportal.org and found that SULT1A4 encodes sulfotransferase family 1A member 4, which matches the Entrez ID. SULT1A4 is responsible for catalyzing the sulfation reaction on dopamine to dopamine-sulfate. This reaction results in a depletion of dopamine concentration and a clear biomarker for Parkinson's Disease [@chen2021; ].
+TopTable () was used to get the numerical results from statistical testing comparing the control group to the case group, providing the p-value and adjusted p-value. We found 23 significant genes, with missing information on which genes are up-regulated or down-regulated. In the top_tibble, we found a missing gene name with Entrez ID "124907837". ncbi.nlm.nih.gov shown that it match SULT1A3 encodes sulfotransferase family 1A member 3 and responsible for catalyzing the sulfation reaction on dopamine to dopamine-sulfate. This reaction results in a depletion of dopamine concentration and a clear biomarker for Parkinson's Disease [@chen2021; ].
 
 ```{r}
 # updating top_tibble dataframe with a new name 
@@ -152,13 +152,13 @@ top_tibble_updated <- top_tibble %>%
     entrezid = as.character(entrezid),
     gene_name =ifelse(
       entrezid == "124907837",
-      "SULT1A4",
+      "SULT1A3",
       gene_name
     ), # add description 
     entrezid = as.character(entrezid),
     description =ifelse(
       entrezid == "124907837",
-      "sulfotransferase family 1A member 4",
+      "sulfotransferase family 1A member 3",
       description
     )
   )
@@ -243,9 +243,7 @@ ggsave("C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/result/rna
 
 The volcano plot compares gene expression between PD case and healthy control samples. The x-axis shows log2 fold change between control relative to case, while the y-axis shows - log10 of the p-value. Higher points are more significant compared to lower points. Genes that have higher expression on both down-regulated or up-regulated has the positions more to the left or right, respectively.
 
-Overall, 14 genes have higher expression in PD while 9 have lower expression in PD. MAOB shows the strongest gene expression and statistical evidence. PRKAA2 has the strongest evidence among genes higher in PD, while ULK2 has the strongest expression. Among down-regulated genes, PRKAA2 has the strongest statistical evidence, while RNF166 has the highest expression difference. However, these sample shows a contrary evidence against the literature as ULK2 is supposed to be among the down-regulated genes
-
-[@wang2026]. Furthermore, MAOB is a gene responsible in producing MPP+ which can cause a cell death to dopamine producing cell which caused Parkinson's disease [@choi2015]. While some other gene such as RNF166 that responsible in cell death does belong to up-regulated genes [@oh2020].
+Overall, 14 genes have higher expression in PD while 9 have lower expression in PD. MAOB shows the strongest gene expression and statistical evidence. PRKAA2 has the strongest evidence among genes higher in PD, while ULK2 has the strongest expression. Among down-regulated genes, PRKAA2 has the strongest statistical evidence, while RNF166 has the highest expression difference. However, these sample shows a contrary evidence against the literature as ULK2 is supposed to be among the down-regulated genes Howe[@wang2026]. Furthermore, MAOB is a gene responsible in producing MPP+ which can cause a cell death to dopamine producing cell which caused Parkinson's disease [@tan2022]. While some other gene such as RNF166 that responsible in cell death does belong to up-regulated genes [@oh2020].
 
 2.  Which gene ontology families do the DE genes belong to?
 
@@ -281,11 +279,16 @@ de_go_summary <- top_tibble_updated %>%
 de_go_summary_table <- knitr::kable(de_go_summary)
 de_go_summary_table
 
-write.csv(de_go_summary_table, "C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/result/rna_Q2_table_for_gene_ontology_vs_DE_genes.csv")
+#downloading packages to write in excel file
+install.packages("writexl")
+writexl::write_xlsx(
+  de_go_summary,
+  "C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/result/rna_Q2_gene_ontology.xlsx"
+)
 
 ```
 
-These tables summarise DE genes that are up-regulated and down-regulated and group them based on their ontology-associated group. It shows that ATG12, ATG3, LRSAM1, PARK7, PRKAA1, PRKAA2, RAB1A, RNF166, RNF41, STK11, TRIM5, ULK2, VPS18, and WDR24 belong to autophagy associated genes. These have higher expression in PD cases. Seven dopamine-category genes LRTOMT, MAOA, MAOB, MOXD1, PDE1B, SULT1A1, and SULT1A4. These have lower expression in PD. While there are only two oxidative phosphorylation members, COX7A1 and FXN that also have lower expression in PD.
+These tables summarise DE genes that are up-regulated and down-regulated and group them based on their ontology-associated group. It shows that ATG12, ATG3, LRSAM1, PARK7, PRKAA1, PRKAA2, RAB1A, RNF166, RNF41, STK11, TRIM5, ULK2, VPS18, and WDR24 belong to autophagy associated genes. These have higher expression in PD cases. Seven dopamine-category genes LRTOMT, MAOA, MAOB, MOXD1, PDE1B, SULT1A1, and SULT1A3. These have lower expression in PD. While there are only two oxidative phosphorylation members, COX7A1 and FXN that also have lower expression in PD.
 
 3.  Is the clustering of samples by gene expression consistent with their disease status as cases and controls?
 
