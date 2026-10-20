@@ -19,6 +19,14 @@ load("data/gait.Rda")
 
     To plot each participants data, I first want to look at how the the data varies across the 700s. Therefore, I will create a histogram showing the counts for each angle observed across the timeframe
 
+Check for Missing Values:
+
+```{r}
+sum(is.na(gait_data))
+```
+
+No missing values, therefore continue with analysis. (Still need to check for outliers)
+
 ```{r}
 #Obtain max and Min values
 seconds <- gait_data[grepl("_secs$", names(gait_data))]
@@ -478,4 +486,698 @@ local({
     outer = TRUE, side = 1, line = 1
   )
 })
+```
+
+Running Descriptive Statistics on Gait Data:
+
+Getting Interquartile range, max, min, mean (Boxplots).
+
+Grouped by Treatment Group, ordered by IQR size
+
+```{r}
+library(tidyr)
+library(ggplot2)
+
+# Convert the time columns into one measurement column
+gait_long <- gait_data |>
+  pivot_longer(
+    cols = matches("^[0-9]+_secs$"),
+    names_to = "time",
+    values_to = "gait_value"
+  )
+
+# Order participants by ascending IQR
+participant_order <- gait_long |>
+  group_by(treatment, participant_label) |>
+  summarise(iqr = IQR(gait_value, na.rm = TRUE), .groups = "drop") |>
+  arrange(treatment, iqr) |>
+  pull(participant_label)
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      participant_label,
+      levels = unique(participant_order)
+    )
+  )
+
+# Create one boxplot per participant
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = treatment
+)) +
+  geom_boxplot(
+    outlier.colour = "red",
+    na.rm = TRUE
+  ) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  facet_grid(
+    rows = vars(treatment),
+    scales = "free_y",
+    space = "free_y"
+  ) +
+  labs(
+    title = "Distribution of gait measurements by participant",
+    x = "Participant",
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Individual boxplots for Control and Treatment group:
+
+```{r}
+# Convert the time columns into one measurement column
+gait_long <- gait_data |>
+  pivot_longer(
+    cols = matches("^[0-9]+_secs$"),
+    names_to = "time",
+    values_to = "gait_value"
+  )
+
+# One boxplot per treatment group
+ggplot(gait_long, aes(
+  x = treatment,
+  y = gait_value,
+  fill = treatment
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  scale_x_discrete(
+    limits = rev(sort(unique(as.character(gait_long$treatment))))
+  ) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements by treatment",
+    x = NULL,
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Comparing the two groups of exercise vs no-exercise:
+
+```{r}
+ggplot(gait_long, aes(
+  x = exercise,
+  y = gait_value,
+  fill = exercise
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  scale_x_discrete(
+    limits = c("y", "n"),
+    labels = c("y" = "Exercise", "n" = "No exercise")
+  ) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements by exercise",
+    x = NULL,
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Now making groups by age bracket (turning binary) and producing boxplots:
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Calculate the median age across participants
+median_age <- gait_long |>
+  distinct(participant_label, age) |>
+  summarise(cutoff = median(age, na.rm = TRUE)) |>
+  pull(cutoff)
+
+median_age  # View the cutoff
+
+# Create two age groups
+gait_long <- gait_long |>
+  mutate(
+    age_group = case_when(
+      age < median_age  ~ "Younger",
+      age >= median_age ~ "Older"
+    )
+  )
+
+# One boxplot per age group
+ggplot(
+  filter(gait_long, !is.na(age_group)),
+  aes(x = age_group, y = gait_value, fill = age_group)
+) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  scale_x_discrete(limits = c("Younger", "Older")) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements by age group",
+    subtitle = paste0(
+      "Median age: ", round(median_age, 2),
+      " years; younger < median, older ≥ median"
+    ),
+    x = NULL,
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Separate into the four experimental groups:
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Define the four groups
+gait_long <- gait_long |>
+  mutate(
+    group = case_when(
+      grepl("control", treatment, ignore.case = TRUE) & exercise == "n" ~
+        "control + no exercise",
+      grepl("control", treatment, ignore.case = TRUE) & exercise == "y" ~
+        "control + exercise",
+      treatment == "New compound" & exercise == "n" ~
+        "treatment + no exercise",
+      treatment == "New compound" & exercise == "y" ~
+        "treatment + exercise"
+    ),
+    group = factor(
+      group,
+      levels = c(
+        "control + no exercise",
+        "control + exercise",
+        "treatment + no exercise",
+        "treatment + exercise"
+      )
+    )
+  )
+
+# Order participants by IQR within each group
+participant_order <- gait_long |>
+  group_by(group, participant_label) |>
+  summarise(iqr = IQR(gait_value, na.rm = TRUE), .groups = "drop") |>
+  arrange(group, iqr) |>
+  pull(participant_label) |>
+  as.character()
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      participant_label,
+      levels = unique(participant_order)
+    )
+  )
+
+# Plot the four groups
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  facet_grid(
+    rows = vars(group),
+    scales = "free_y",
+    space = "free_y"
+  ) +
+  labs(
+    title = "Gait measurements by treatment and exercise",
+    x = "Participant",
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Try removing groups, and just separating by colour
+
+```{r}
+# Order all participants by ascending IQR
+participant_order <- gait_long |>
+  group_by(participant_label) |>
+  summarise(iqr = IQR(gait_value, na.rm = TRUE), .groups = "drop") |>
+  arrange(iqr) |>
+  pull(participant_label) |>
+  as.character()
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      participant_label,
+      levels = unique(participant_order)
+    )
+  )
+
+# Plot participants together, coloured by group
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements ordered by participant IQR",
+    x = "Participant",
+    y = "Gait measurement",
+    fill = "Group"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+Make summary boxplots for the four groups:
+
+```{r}
+# Calculate one IQR per participant
+participant_iqr <- gait_long |>
+  group_by(group, participant_label) |>
+  summarise(
+    iqr = IQR(gait_value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Compare participant IQRs across the four groups
+ggplot(gait_long, aes(
+  x = group,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "black", na.rm = TRUE) +
+  scale_x_discrete(limits = rev(levels(gait_long$group))) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements by treatment and exercise",
+    x = NULL,
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+I now want to see (visually) whether age is effecting these outcomes:
+
+```{r}
+# Order participants by age
+participant_order <- gait_long |>
+  distinct(participant_label, age) |>
+  arrange(age) |>
+  pull(participant_label) |>
+  as.character()
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      participant_label,
+      levels = unique(participant_order)
+    )
+  )
+
+# Plot participants together, coloured by group
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements ordered by participant age",
+    x = "Participant",
+    y = "Gait measurement",
+    fill = "Group"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+This is a combination of ascending IRQ and age printed on boxplots:
+
+```{r}
+# One age label per participant, preserving the existing order
+age_labels <- gait_long |>
+  distinct(participant_label, age)
+
+# Plot with ages on the right
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  geom_label(
+    data = age_labels,
+    aes(
+      x = participant_label,
+      y = 58,
+      label = paste0("Age ", round(age, 1))
+    ),
+    inherit.aes = FALSE,
+    hjust = 1,
+    size = 3,
+    fill = "white",
+    colour = "black",
+    linewidth = 0
+  ) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  labs(
+    title = "Gait measurements ordered by participant IQR",
+    x = "Participant",
+    y = "Gait measurement",
+    fill = "Group"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+Trying to order by age within each group:
+
+```{r}
+# Define the four groups
+gait_long <- gait_long |>
+  mutate(
+    group = case_when(
+      grepl("control", treatment, ignore.case = TRUE) & exercise == "n" ~
+        "control + no exercise",
+      grepl("control", treatment, ignore.case = TRUE) & exercise == "y" ~
+        "control + exercise",
+      treatment == "New compound" & exercise == "n" ~
+        "treatment + no exercise",
+      treatment == "New compound" & exercise == "y" ~
+        "treatment + exercise"
+    ),
+    group = factor(
+      group,
+      levels = c(
+        "control + no exercise",
+        "control + exercise",
+        "treatment + no exercise",
+        "treatment + exercise"
+      )
+    )
+  )
+
+# Order participants by IQR within each group
+participant_order <- gait_long |>
+  group_by(group, participant_label) |>
+  summarise(iqr = IQR(gait_value, na.rm = TRUE), .groups = "drop") |>
+  arrange(group, iqr) |>
+  pull(participant_label) |>
+  as.character()
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      participant_label,
+      levels = unique(participant_order)
+    )
+  )
+
+# Create age labels after setting the participant order
+age_labels <- gait_long |>
+  distinct(group, participant_label, age)
+
+# Create age labels after setting the participant order
+age_labels <- gait_long |>
+  distinct(group, participant_label, age)
+
+# Plot the four groups with age labels
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  geom_label(
+    data = age_labels,
+    aes(
+      x = participant_label,
+      y = 58,
+      label = paste0("Age ", round(age, 1))
+    ),
+    inherit.aes = FALSE,
+    hjust = 1,
+    size = 3,
+    fill = "white",
+    colour = "black",
+    linewidth = 0
+  ) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  facet_grid(
+    rows = vars(group),
+    scales = "free_y",
+    space = "free_y"
+  ) +
+  labs(
+    title = "Gait measurements ordered by IQR within each group",
+    x = "Participant",
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Now with average Age per group:
+
+```{r}
+# Define the four groups
+gait_long <- gait_long |>
+  mutate(
+    group = case_when(
+      grepl("control", treatment, ignore.case = TRUE) & exercise == "n" ~
+        "control + no exercise",
+      grepl("control", treatment, ignore.case = TRUE) & exercise == "y" ~
+        "control + exercise",
+      treatment == "New compound" & exercise == "n" ~
+        "treatment + no exercise",
+      treatment == "New compound" & exercise == "y" ~
+        "treatment + exercise"
+    ),
+    group = factor(
+      group,
+      levels = c(
+        "control + no exercise",
+        "control + exercise",
+        "treatment + no exercise",
+        "treatment + exercise"
+      )
+    )
+  )
+
+# Order participants by IQR within each group
+participant_order <- gait_long |>
+  group_by(group, participant_label) |>
+  summarise(iqr = IQR(gait_value, na.rm = TRUE), .groups = "drop") |>
+  arrange(group, iqr) |>
+  pull(participant_label) |>
+  as.character()
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      participant_label,
+      levels = unique(participant_order)
+    )
+  )
+
+# Create age labels after setting the participant order
+age_labels <- gait_long |>
+  distinct(group, participant_label, age)
+
+# Create age labels after setting the participant order
+age_labels <- gait_long |>
+  distinct(group, participant_label, age)
+
+# Calculate average age per group, counting each participant once
+group_ages <- gait_long |>
+  distinct(group, participant_label, age) |>
+  group_by(group) |>
+  summarise(
+    mean_age = mean(age, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot the four groups with age labels
+ggplot(gait_long, aes(
+  x = participant_label,
+  y = gait_value,
+  fill = group
+)) +
+  geom_boxplot(outlier.colour = "red", na.rm = TRUE) +
+  geom_label(
+    data = group_ages,
+    aes(
+      x = Inf,
+      y = 58,
+      label = paste0("Mean age: ", round(mean_age, 1))
+    ),
+    inherit.aes = FALSE,
+    hjust = 1,
+    vjust = 1,
+    size = 3,
+    fill = "white",
+    colour = "black",
+    linewidth = 0
+  ) +
+  scale_y_continuous(breaks = seq(-60, 60, by = 15)) +
+  coord_flip(ylim = c(-60, 60)) +
+  facet_grid(
+    rows = vars(group),
+    scales = "free_y",
+    space = "free_y"
+  ) +
+  labs(
+    title = "Gait measurements ordered by IQR within each group",
+    x = "Participant",
+    y = "Gait measurement"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Assumptions to Check:
+
+If I want to run a linear or mixed linear model;
+
+- A normal linear regression assumes independence of outcome data. This is not true, as the 700 observations are in a time series to each participant.
+
+```{r}
+
+```
+
+Other tests worth analysing:
+
+```{r}
+library(dplyr)
+
+# One row per participant
+participant_stats <- gait_long |>
+  group_by(donorid, treatment, exercise, age) |>
+  summarise(
+    n_observations = sum(!is.na(gait_value)),
+    mean_gait = mean(gait_value, na.rm = TRUE),
+    median_gait = median(gait_value, na.rm = TRUE),
+    sd_gait = sd(gait_value, na.rm = TRUE),
+    iqr_gait = IQR(gait_value, na.rm = TRUE),
+    rms_gait = sqrt(mean(gait_value^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) |>
+  mutate(
+    treatment = factor(treatment),
+    exercise = factor(exercise, levels = c("n", "y"))
+  )
+
+participant_stats
+```
+
+Using Root Square Mean to compare deviations from upright:
+
+```{r}
+model_treatment <- lm(
+  rms_gait ~ treatment,
+  data = participant_stats
+)
+
+summary(model_treatment)
+confint(model_treatment)
+```
+
+Using Standard Deviation:
+
+```{r}
+model_treatment <- lm(
+  sd_gait ~ treatment,
+  data = participant_stats
+)
+
+summary(model_treatment)
+confint(model_treatment)
+```
+
+Checking the reference group:
+
+```{r}
+levels(participant_stats$treatment)
+```
+
+Accounting for exercise and age, Using RMS:
+
+```{r}
+model_adjusted <- lm(
+  rms_gait ~ treatment + exercise + age,
+  data = participant_stats
+)
+
+summary(model_adjusted)
+confint(model_adjusted)
+
+# Test each predictor while accounting for the other two
+drop1(model_adjusted, test = "F")
+```
+
+Accounting for Exercise and Age, using SD:
+
+```{r}
+model_adjusted <- lm(
+  sd_gait ~ treatment + exercise + age,
+  data = participant_stats
+)
+
+summary(model_adjusted)
+confint(model_adjusted)
+
+# Test each predictor while accounting for the other two
+drop1(model_adjusted, test = "F")
+```
+
+Running graph for Root Square Means:
+
+```{r}
+ggplot(
+  participant_stats,
+  aes(x = treatment, y = rms_gait)
+) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = exercise, size = age),
+    position = position_jitter(width = 0.08, height = 0, seed = 345),
+    alpha = 0.7
+  ) +
+  scale_colour_manual(
+    values = c("n" = "#D55E00", "y" = "#0072B2"),
+    labels = c("n" = "No exercise", "y" = "Exercise"),
+    name = "Exercise"
+  ) +
+  scale_size_continuous(
+    name = "Age (years)",
+    range = c(1, 6),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "Gait deviation from upright by treatment",
+    x = "Treatment",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
 ```
