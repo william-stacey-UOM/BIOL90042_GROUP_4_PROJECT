@@ -4,9 +4,9 @@ format: html
 editor: visual
 ---
 
-### **Clinical Trial**
+## **Clinical Trial**
 
-Load the Gait data
+#### Load the Gait data
 
 ```{r}
 library(tidyverse)
@@ -19,7 +19,7 @@ load("data/gait.Rda")
 
     To plot each participants data, I first want to look at how the the data varies across the 700s. Therefore, I will create a histogram showing the counts for each angle observed across the timeframe
 
-Check for Missing Values:
+#### Check for Missing Values: 
 
 ```{r}
 sum(is.na(gait_data))
@@ -34,6 +34,8 @@ seconds <- gait_data[grepl("_secs$", names(gait_data))]
 min(as.matrix(seconds), na.rm = TRUE)
 max(as.matrix(seconds), na.rm = TRUE)
 ```
+
+#### Histograms:
 
 ```{r}
 #Histogram
@@ -59,6 +61,8 @@ hist(
 
 axis(1, at = c(-50, seq(-40, 50, by = 10), 60))
 ```
+
+Now I want to apply this to each individual participant so then I can compare their histograms and gain insights into the distribution variations in gait_data
 
 ```{r}
 measurement_cols <- grepl("_secs$", names(gait_data))
@@ -113,213 +117,13 @@ local({
 })
 ```
 
-Now I am going to try make a graph that represents the variation of angle for each participant over their 700s
+#### Interpretation of Multiple Histograms:
 
-```{r}
-# Find measurement columns and put them in time order
-measurement_cols <- grep(
-  "^[0-9]+_secs$", names(gait_data), value = TRUE
-)
+This works well to be able to see the frequency at which individuals are being recorded "off-axis". Histograms that are skinny and tall show little variation, and consistent alignment to 0º's, whilst spread out histograms represent participants with large variations from being 'straight', representing individuals with low stability/smoothness. This is visually good to compare, but may be hard to interpret as descriptive graphics.
 
-seconds <- as.numeric(sub("_secs$", "", measurement_cols))
-time_order <- order(seconds)
+#### Visual Representation of Vertical Axis Whilst Walking:
 
-measurement_cols <- measurement_cols[time_order]
-seconds <- seconds[time_order]
-
-# Colours represent time: blue -> yellow -> red
-time_palette <- colorRampPalette(
-  c("blue", "gold", "red")
-)(700)
-
-time_colours <- time_palette[seconds]
-
-local({
-  old_par <- par(no.readonly = TRUE)
-  on.exit(par(old_par))
-  
-  n <- nrow(gait_data)
-  n_cols <- ceiling(sqrt(n))
-  n_rows <- ceiling(n / n_cols)
-  
-  par(
-    mfrow = c(n_rows, n_cols),
-    mar = c(1, 1, 2, 1),
-    oma = c(3, 0, 2, 0)
-  )
-  
-  for (i in seq_len(n)) {
-    angles <- as.numeric(unlist(
-      gait_data[i, measurement_cols, drop = FALSE]
-    ))
-    
-    # Convert degrees to radians
-    radians <- angles * pi / 180
-    valid <- is.finite(radians)
-    
-    # Empty panel, with equal horizontal and vertical scales
-    plot(
-      NA,
-      xlim = c(-1.2, 1.2),
-      ylim = c(-0.15, 1.2),
-      asp = 1,
-      axes = FALSE,
-      xlab = "",
-      ylab = "",
-      main = as.character(gait_data$donorid[i])
-    )
-    
-    # Semicircular guide
-    arc <- seq(-pi / 2, pi / 2, length.out = 200)
-    lines(sin(arc), cos(arc), col = "grey75")
-    
-    # Angle guides and labels
-    ticks <- seq(-90, 90, by = 45)
-    tick_radians <- ticks * pi / 180
-    
-    segments(
-      0, 0,
-      sin(tick_radians), cos(tick_radians),
-      col = "grey80", lty = 2
-    )
-    
-    text(
-      1.12 * sin(tick_radians),
-      1.12 * cos(tick_radians),
-      labels = paste0(ticks, "°"),
-      cex = 0.7
-    )
-    
-    # One ray for each recorded time point
-    segments(
-      0, 0,
-      sin(radians[valid]),
-      cos(radians[valid]),
-      col = adjustcolor(time_colours[valid], alpha.f = 0.3),
-      lwd = 0.7
-    )
-    
-    points(0, 0, pch = 16, cex = 0.6)
-  }
-  
-  mtext("Walking orientation by participant",
-        outer = TRUE, side = 3, line = 0.5)
-  
-  mtext("Time: blue = 1 s   |   yellow ≈ 350 s   |   red = 700 s",
-        outer = TRUE, side = 1, line = 1)
-})
-```
-
-```{r}
-# Find measurement columns and put them in time order
-measurement_cols <- grep(
-  "^[0-9]+_secs$", names(gait_data), value = TRUE
-)
-
-seconds <- as.numeric(sub("_secs$", "", measurement_cols))
-measurement_cols <- measurement_cols[order(seconds)]
-
-if (length(measurement_cols) == 0 || nrow(gait_data) == 0) {
-  stop("No participant rows or seconds columns found.")
-}
-
-# Shared colour scale for all participants
-angle_palette <- colorRampPalette(c("blue", "red"))(256)
-red_threshold <- 20
-
-local({
-  old_par <- par(no.readonly = TRUE)
-  on.exit(par(old_par))
-  
-  # Arrange participants in a grid
-  n <- nrow(gait_data)
-  n_cols <- ceiling(sqrt(n))
-  n_rows <- ceiling(n / n_cols)
-  
-  par(
-    mfrow = c(n_rows, n_cols),
-    mar = c(1, 1, 2, 1),
-    oma = c(3, 0, 2, 0)
-  )
-  
-  for (i in seq_len(n)) {
-    angles <- as.numeric(unlist(
-      gait_data[i, measurement_cols, drop = FALSE]
-    ))
-    
-    # Convert degrees to radians
-    radians <- angles * pi / 180
-    valid <- is.finite(radians)
-    
-    # Blue at 0°, fully red at ±15° and beyond
-    colour_index <- 1L + floor(
-      pmin(abs(angles[valid]) / red_threshold, 1) * 255
-    )
-    
-    angle_colours <- angle_palette[colour_index]
-    
-    # Create an empty panel
-    plot(
-      NA,
-      xlim = c(-1.2, 1.2),
-      ylim = c(-0.15, 1.2),
-      asp = 1,
-      axes = FALSE,
-      xlab = "",
-      ylab = "",
-      main = as.character(gait_data$donorid[i])
-    )
-    
-    # Semicircular guide
-    arc <- seq(-pi / 2, pi / 2, length.out = 200)
-    lines(sin(arc), cos(arc), col = "grey75")
-    
-    # Angle guides and labels
-    ticks <- seq(-90, 90, by = 45)
-    tick_radians <- ticks * pi / 180
-    
-    segments(
-      0, 0,
-      sin(tick_radians), cos(tick_radians),
-      col = "grey80",
-      lty = 2
-    )
-    
-    text(
-      1.12 * sin(tick_radians),
-      1.12 * cos(tick_radians),
-      labels = paste0(ticks, "°"),
-      cex = 0.7
-    )
-    
-    # One ray for each valid measurement
-    segments(
-      0, 0,
-      sin(radians[valid]),
-      cos(radians[valid]),
-      col = adjustcolor(angle_colours, alpha.f = 0.5),
-      lwd = 0.7
-    )
-    
-    points(0, 0, pch = 16, cex = 0.6)
-  }
-  
-  mtext(
-    "Walking orientation by participant",
-    outer = TRUE, side = 3, line = 0.5
-  )
-  
-  mtext(
-    sprintf(
-      "Distance from vertical: blue = 0° | red = %.0f° and above",
-      red_threshold
-    ),
-    outer = TRUE, side = 1, line = 1
-  )
-})
-```
-
-Trying to organise by groups:
+This graph will represent the vertical axis of each participant over their 700 second measurements. Organised into the two experimental groups (and exercise group).
 
 ```{r}
 # Change participants ID numbers to 1-16
@@ -488,7 +292,429 @@ local({
 })
 ```
 
-Running Descriptive Statistics on Gait Data:
+#### Visual Animation of Vertical Orientation:
+
+```{r}
+library(ggplot2)
+library(gganimate)
+
+# Settings
+participant <- "d031"
+preview_seconds <- 30   # Use Inf for the full recording
+red_threshold <- 20
+
+# Find the participant
+participant_row <- which(gait_data$donorid == participant)
+
+if (length(participant_row) != 1) {
+  stop("Expected exactly one row for participant: ", participant)
+}
+
+# Find measurement columns and order them by time
+measurement_cols <- grep(
+  "^[0-9]+_secs$",
+  names(gait_data),
+  value = TRUE
+)
+
+if (length(measurement_cols) == 0) {
+  stop("No measurement columns found.")
+}
+
+seconds <- as.numeric(sub("_secs$", "", measurement_cols))
+time_order <- order(seconds)
+
+seconds <- seconds[time_order]
+measurement_cols <- measurement_cols[time_order]
+
+# Extract the participant's angles
+angles <- as.numeric(unlist(
+  gait_data[participant_row, measurement_cols, drop = FALSE],
+  use.names = FALSE
+))
+
+# Select the preview period
+keep <- seconds < min(seconds) + preview_seconds
+
+animation_data <- data.frame(
+  second = seconds[keep],
+  angle = angles[keep]
+)
+
+if (nrow(animation_data) == 0) {
+  stop("No measurements selected.")
+}
+
+# One frame per second requires consecutive second columns
+if (any(diff(animation_data$second) != 1)) {
+  stop("The selected measurement columns are not spaced one second apart.")
+}
+
+# Keep missing observations in the timeline, but show no orientation
+animation_data$angle[
+  !is.finite(animation_data$angle)
+] <- NA_real_
+
+# Convert angles to the endpoint of a line of length 1
+animation_data$radians <- animation_data$angle * pi / 180
+animation_data$x_end <- sin(animation_data$radians)
+animation_data$y_end <- cos(animation_data$radians)
+animation_data$deviation <- abs(animation_data$angle)
+
+animation_data$angle_label <- ifelse(
+  is.na(animation_data$angle),
+  "Missing measurement",
+  sprintf("Angle: %+.1f°", animation_data$angle)
+)
+
+# Explicitly preserve chronological frame order
+animation_data$frame <- factor(
+  animation_data$second,
+  levels = animation_data$second
+)
+
+# Static semicircular guide
+arc <- seq(-pi / 2, pi / 2, length.out = 200)
+
+arc_data <- data.frame(
+  x = sin(arc),
+  y = cos(arc)
+)
+
+# Static angle guides
+ticks <- seq(-90, 90, by = 45)
+
+guide_data <- data.frame(
+  x = sin(ticks * pi / 180),
+  y = cos(ticks * pi / 180),
+  label = paste0(ticks, "°")
+)
+
+# Build the animation
+orientation_plot <- ggplot(animation_data) +
+  geom_path(
+    data = arc_data,
+    aes(x = x, y = y),
+    colour = "grey75"
+  ) +
+  geom_segment(
+    data = guide_data,
+    aes(x = 0, y = 0, xend = x, yend = y),
+    colour = "grey80",
+    linetype = "dashed"
+  ) +
+  geom_text(
+    data = guide_data,
+    aes(x = 1.12 * x, y = 1.12 * y, label = label),
+    size = 4
+  ) +
+  geom_segment(
+    aes(
+      x = 0,
+      y = 0,
+      xend = x_end,
+      yend = y_end,
+      colour = deviation
+    ),
+    linewidth = 3,
+    lineend = "round",
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(x = x_end, y = y_end, colour = deviation),
+    size = 6,
+    na.rm = TRUE
+  ) +
+  annotate(
+    "point",
+    x = 0,
+    y = 0,
+    size = 3,
+    colour = "black"
+  ) +
+  # Position the angle readout closer to the animation
+  geom_text(
+    aes(label = angle_label),
+    x = 0,
+    y = -0.25,
+    size = 5
+  ) +
+  scale_colour_gradient(
+    low = "blue",
+    high = "red",
+    limits = c(0, red_threshold),
+    oob = scales::squish,
+    breaks = c(0, 10, 20),
+    labels = c("0°", "10°", "20°+"),
+    name = "Distance from vertical"
+  ) +
+  # Reduce unused space below the pivot
+  coord_fixed(
+    xlim = c(-1.25, 1.25),
+    ylim = c(-0.40, 1.25)
+  ) +
+  labs(
+    title = paste("Walking orientation:", participant),
+    subtitle = "Recording time: {current_frame} seconds",
+    caption = "Negative angles shown left; positive angles shown right"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  ) +
+  transition_manual(frame)
+
+# Render: one recorded second per animation second
+orientation_animation <- animate(
+  orientation_plot,
+  nframes = nrow(animation_data),
+  fps = 1,
+  width = 650,
+  height = 500,
+  renderer = gifski_renderer()
+)
+
+# Save and display in the rendered Quarto HTML
+animation_file <- paste0("orientation_", participant, ".gif")
+
+anim_save(
+  filename = animation_file,
+  animation = orientation_animation
+)
+
+knitr::include_graphics(animation_file)
+```
+
+#### Stick Figure Animation:
+
+Representing this as a stick figure animation will help with conceptualisation of walking gait when presenting information
+
+```{r}
+library(ggplot2)
+library(gganimate)
+
+# Settings
+participant <- "d031"
+preview_seconds <- 30   # Use Inf for the full recording
+playback_fps <- 10      # Use 1 for real-time playback
+red_threshold <- 20
+
+# Find the participant
+participant_row <- which(gait_data$donorid == participant)
+
+if (length(participant_row) != 1) {
+  stop("Expected exactly one row for participant: ", participant)
+}
+
+# Find measurement columns and put them in time order
+measurement_cols <- grep(
+  "^[0-9]+_secs$",
+  names(gait_data),
+  value = TRUE
+)
+
+if (length(measurement_cols) == 0) {
+  stop("No measurement columns found.")
+}
+
+seconds <- as.numeric(sub("_secs$", "", measurement_cols))
+time_order <- order(seconds)
+
+seconds <- seconds[time_order]
+measurement_cols <- measurement_cols[time_order]
+
+# Extract the participant's angles
+angles <- as.numeric(unlist(
+  gait_data[participant_row, measurement_cols, drop = FALSE],
+  use.names = FALSE
+))
+
+# Select the preview period
+keep <- seconds < min(seconds) + preview_seconds
+
+animation_data <- data.frame(
+  second = seconds[keep],
+  angle = angles[keep]
+)
+
+if (nrow(animation_data) == 0) {
+  stop("No measurements selected.")
+}
+
+if (any(diff(animation_data$second) != 1)) {
+  stop("The selected measurement columns are not spaced one second apart.")
+}
+
+# Preserve missing observations in the timeline
+animation_data$angle[
+  !is.finite(animation_data$angle)
+] <- NA_real_
+
+# Prepare angles and frame labels
+animation_data$radians <- animation_data$angle * pi / 180
+animation_data$deviation <- abs(animation_data$angle)
+
+animation_data$angle_label <- ifelse(
+  is.na(animation_data$angle),
+  "Missing measurement",
+  sprintf("Angle: %+.1f°", animation_data$angle)
+)
+
+animation_data$frame <- factor(
+  animation_data$second,
+  levels = animation_data$second
+)
+
+# Semicircular guide
+arc <- seq(-pi / 2, pi / 2, length.out = 200)
+
+arc_data <- data.frame(
+  x = sin(arc),
+  y = cos(arc)
+)
+
+# Angle guides
+ticks <- seq(-90, 90, by = 45)
+
+guide_data <- data.frame(
+  x = sin(ticks * pi / 180),
+  y = cos(ticks * pi / 180),
+  label = paste0(ticks, "°")
+)
+
+# Upright stick figure, pivoting midway between the feet
+body_template <- data.frame(
+  part = c("torso", "left_arm", "right_arm", "left_leg", "right_leg"),
+  x    = c(0,    0,     0,    0,     0),
+  y    = c(0.38, 0.70,  0.70, 0.38,  0.38),
+  xend = c(0,   -0.24,  0.24, -0.13, 0.13),
+  yend = c(0.82, 0.48,  0.48, 0,     0)
+)
+
+# Repeat body segments for every frame
+body_data <- merge(
+  animation_data,
+  body_template,
+  by = NULL,
+  sort = FALSE
+)
+
+# Rotate the body: positive angles lean right
+body_data <- transform(
+  body_data,
+  rotated_x    = x * cos(radians) + y * sin(radians),
+  rotated_y    = -x * sin(radians) + y * cos(radians),
+  rotated_xend = xend * cos(radians) + yend * sin(radians),
+  rotated_yend = -xend * sin(radians) + yend * cos(radians)
+)
+
+# Rotate the head's centre
+animation_data$head_x <- 0.90 * sin(animation_data$radians)
+animation_data$head_y <- 0.90 * cos(animation_data$radians)
+
+# Build the animation
+orientation_plot <- ggplot() +
+  geom_path(
+    data = arc_data,
+    aes(x = x, y = y),
+    colour = "grey75"
+  ) +
+  geom_segment(
+    data = guide_data,
+    aes(x = 0, y = 0, xend = x, yend = y),
+    colour = "grey80",
+    linetype = "dashed"
+  ) +
+  geom_text(
+    data = guide_data,
+    aes(x = 1.12 * x, y = 1.12 * y, label = label),
+    size = 4
+  ) +
+  # Torso, arms and legs
+  geom_segment(
+    data = body_data,
+    aes(
+      x = rotated_x,
+      y = rotated_y,
+      xend = rotated_xend,
+      yend = rotated_yend,
+      colour = deviation
+    ),
+    linewidth = 2.5,
+    lineend = "round",
+    na.rm = TRUE
+  ) +
+  # Head
+  geom_point(
+    data = animation_data,
+    aes(x = head_x, y = head_y, colour = deviation),
+    shape = 21,
+    fill = "white",
+    size = 12,
+    stroke = 1.8,
+    na.rm = TRUE
+  ) +
+  # Angle readout positioned close to the figure
+  geom_text(
+    data = animation_data,
+    aes(label = angle_label),
+    x = 0,
+    y = -0.25,
+    size = 5
+  ) +
+  scale_colour_gradient(
+    low = "blue",
+    high = "red",
+    limits = c(0, red_threshold),
+    oob = scales::squish,
+    breaks = c(0, 10, 20),
+    labels = c("0°", "10°", "20°+"),
+    name = "Distance from vertical"
+  ) +
+  # Compact plotting area
+  coord_fixed(
+    xlim = c(-1.25, 1.25),
+    ylim = c(-0.40, 1.25)
+  ) +
+  labs(
+    title = paste("Walking orientation:", participant),
+    subtitle = "Recording time: {current_frame} seconds",
+    caption = "Schematic figure tilted by the recorded angle"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  ) +
+  transition_manual(frame)
+
+# Render
+orientation_animation <- animate(
+  orientation_plot,
+  nframes = nrow(animation_data),
+  fps = 1,
+  width = 650,
+  height = 500,
+  renderer = gifski_renderer()
+)
+
+# Save and display in Quarto HTML
+animation_file <- paste0("stick_figure_", participant, ".gif")
+
+anim_save(
+  filename = animation_file,
+  animation = orientation_animation
+)
+
+knitr::include_graphics(animation_file)
+```
+
+#### Descriptive Statistics for Gait Data:
 
 Getting Interquartile range, max, min, mean (Boxplots).
 
@@ -1180,4 +1406,247 @@ ggplot(
     y = "Participant RMS (degrees)"
   ) +
   theme_minimal()
+```
+
+Three Visual Descriptive Statistics for Root Mean Squares:
+
+```{r}
+# Boxplot for Treatment v RMS score
+ggplot(participant_stats, aes(x = treatment, y = rms_gait)) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    position = position_jitter(width = 0.08, height = 0, seed = 123),
+    size = 3,
+    alpha = 0.8
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS gait deviation by treatment",
+    x = "Treatment",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+
+
+# Boxplot for Exercise v RMS score
+ggplot(participant_stats, aes(x = exercise, y = rms_gait)) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = exercise),
+    position = position_jitter(width = 0.08, height = 0, seed = 123),
+    size = 3,
+    alpha = 0.8
+  ) +
+  scale_x_discrete(
+    limits = c("n", "y"),
+    labels = c("n" = "No exercise", "y" = "Exercise")
+  ) +
+  scale_colour_manual(
+    values = c("n" = "#D55E00", "y" = "#0072B2"),
+    guide = "none"
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS gait deviation by exercise",
+    x = "Exercise",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+
+
+# Scatterplot for Age v RMS score
+ggplot(participant_stats, aes(x = age, y = rms_gait)) +
+  geom_point(
+    size = 3,
+    alpha = 0.8,
+    colour = "#0072B2"
+  ) +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    se = TRUE,
+    colour = "black"
+  ) +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(
+    title = "RMS gait deviation by age",
+    x = "Age (years)",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+```
+
+Now Descriptive Statistics with the three variables on each graph:
+
+```{r}
+library(paletteer)
+
+# Ensure the grouping variables are categorical
+plot_data <- participant_stats
+plot_data$treatment <- factor(plot_data$treatment)
+plot_data$exercise <- factor(plot_data$exercise, levels = c("n", "y"))
+
+
+# Boxplot for Treatment v RMS score
+ggplot(plot_data, aes(x = treatment, y = rms_gait)) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = exercise, size = age),
+    position = position_jitter(width = 0.08, height = 0, seed = 123),
+    shape = 16,
+    alpha = 0.8
+  ) +
+  scale_colour_manual(
+    values = c("n" = "#D55E00", "y" = "#0072B2"),
+    labels = c("n" = "No exercise", "y" = "Exercise"),
+    name = "Exercise"
+  ) +
+  scale_radius(
+    name = "Age (years)",
+    range = c(2, 6),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS gait deviation by treatment",
+    x = "Treatment",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+
+
+# Boxplot for Exercise v RMS score
+ggplot(plot_data, aes(x = exercise, y = rms_gait)) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = treatment, size = age),
+    position = position_jitter(width = 0.08, height = 0, seed = 123),
+    shape = 16,
+    alpha = 0.8
+  ) +
+  scale_x_discrete(
+    labels = c("n" = "No exercise", "y" = "Exercise")
+  ) +
+  scale_colour_manual(
+    values = c(
+      "L-DOPA control" = "#CDAD00",
+      "New compound" = "#548B54"
+    ),
+    name = "Treatment"
+  ) +
+  scale_radius(
+    name = "Age (years)",
+    range = c(2, 6),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS gait deviation by exercise",
+    x = "Exercise",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+
+
+# Scatterplot for Age v RMS score
+ggplot(plot_data, aes(x = age, y = rms_gait)) +
+  geom_point(
+    aes(colour = exercise, shape = treatment),
+    size = 3,
+    alpha = 0.8
+  ) +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    se = TRUE,
+    colour = "black"
+  ) +
+  scale_colour_manual(
+    values = c("n" = "#D55E00", "y" = "#0072B2"),
+    labels = c("n" = "No exercise", "y" = "Exercise"),
+    name = "Exercise"
+  ) +
+  scale_shape_discrete(
+    name = "Treatment"
+  ) +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(
+    title = "RMS gait deviation by age",
+    x = "Age (years)",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+```
+
+Violin Plots for individual data:
+
+```{r}
+library(ggplot2)
+
+ggplot(
+  gait_long,
+  aes(x = participant_label, y = gait_value)
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    colour = "grey50"
+  ) +
+  geom_violin(
+    aes(fill = treatment),
+    trim = TRUE,
+    alpha = 0.6
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    outlier.shape = NA,
+    fill = "white"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "L-DOPA control" = "#D55E00",
+      "New compound" = "#0072B2"
+    ),
+    name = "Treatment"
+  ) +
+  labs(
+    title = "Distribution of gait angles by participant",
+    x = "Participant",
+    y = "Angle relative to upright (degrees)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  )
 ```
