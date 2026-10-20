@@ -1,0 +1,6 @@
+"","x"
+"1","|go_id      |category                      | de_genes| up_in_pd| down_in_pd|gene_names                                                                            |"
+"2","|:----------|:-----------------------------|--------:|--------:|----------:|:-------------------------------------------------------------------------------------|"
+"3","|GO:0006914 |Autophagy                     |       14|       14|          0|ATG12,ATG3,LRSAM1,PARK7,PRKAA1,PRKAA2,RAB1A,RNF166,RNF41,STK11,TRIM5,ULK2,VPS18,WDR24 |"
+"4","|GO:0042420 |Dopamine biosynthetic process |        7|        0|          7|LRTOMT,MAOA,MAOB,MOXD1,PDE1B,SULT1A1,SULT1A3                                          |"
+"5","|GO:0006119 |Oxidative phosphorylation     |        2|        0|          2|COX7A1,FXN                                                                            |"

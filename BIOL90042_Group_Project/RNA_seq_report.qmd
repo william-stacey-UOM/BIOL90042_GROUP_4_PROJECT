@@ -1,0 +1,329 @@
+---
+title: "rna_sequencing_report"
+format: html
+editor: visual
+bibliography: rna_ref.bib
+---
+
+## RNA Sequencing
+
+This section analyse the RNA-seq data using these dataset:
+
+- rnsaeq.Rda = DGE list
+
+- rnaseq_seq_gene_info.Rda = gene names and gene ontology data
+
+  The dataset comparing PD neurons with induced pluripotent stem cell (iPSCs) from 8 patients with Parkinson's Disease (PD) and 8 healthy patients. the cells were differentiated into dopaminergic neurons then the RNA were sequenced.
+
+## Running Code
+
+```{r}
+# loading all the library
+library(tidyverse)
+library(edgeR)
+library(limma)
+library(dplyr)
+library(ggplot2)
+library(RNAseq123)
+library(pheatmap)
+library(ggrepel)
+```
+
+**Step 1: Loads our data**
+
+```{r}
+#assign the data to a variable
+gene_info <- load("C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/data/rnaseq_gene_info.Rda") 
+load("C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/data/rnaseq.Rda") # This is the dge list that contains all of our informations
+# Find group of the samples
+dge$samples$group
+# change the entrez_gename_key as character
+genes_key <- entrez_genename_key %>% 
+  mutate(entrezid = as.character(entrezid))
+```
+
+Here we have 2 levels: control and case group compromise of both 8 patients
+
+**Step 2: Filtering the data**
+
+```{r}
+# Filtering our data
+# keep is our logical vector of which rows to keep
+keep <- filterByExpr(dge)
+
+# use the table() function to see how many genes we
+# will keep (TRUE) and how many we will filter out (FALSE)
+table(keep)
+# proportions gives us the proportions rather than
+# just the counts
+proportions(table(keep))
+
+#performing filter on our dge
+dge <- dge[keep, , keep.lib.sizes = FALSE]
+
+
+# check the dimensions of the count matrix to see they
+# have reduced
+dim(dge$counts)
+```
+
+We started with 10096 gene and now after filtering it reduced to 9846 genes. It means 250 (2.48 %) genes filtered out.
+
+**Step 3: Normalisations**
+
+```{r}
+# Normalise our data
+dge <- normLibSizes(dge, method = "TMM") # TMM = trimmed mean of M-values
+dge$samples
+```
+
+TMM normalisations remove an extreme log fold changes and normalise it on remaining non-differentially expressed genes [@singh2024]. TMM factor range 1.016 to 1.052 in control sample, showing minimal differences in RNA compositions. While in case group ranging from 0.88-1.075, showing a quite diverse different between case sample. These adjust the compositions of the library sizes and not measures the biological variability.
+
+**Step 4: MDS Plot, visualise raw data**
+
+```{r}
+#creating MDS Plot
+plotMDS(dge, labels = dge$samples$group)
+
+
+```
+
+Each point on the MDS plot represents one patient sample. Distances between points reflect differences in gene-expression profiles: samples closer together have more similar expression profiles, whereas samples farther apart are more different. The two dimensions account for approximately 9% and 7% of the MDS variation, showing the overall structure. Most PD cases appear separated from the healthy controls, although some cases cluster close to the controls. Overall, the plot suggests that gene-expression patterns are partly consistent with disease status, but the differentiation of the case group cannot be distinguished from this plot alone.
+
+**Step 5: Linear modeling and variance modelling using voom()**
+
+```{r}
+# creating design matrix
+design <- model.matrix(~ 0 + group, data = dge$samples) 
+# rename the columns of the design matrix to be just 'Control' or 'Case'. Instead of 'groupControl'
+  colnames(design) <- c("Control", "Case")
+design
+
+# make the contrast matrix
+contr_matrix <- makeContrasts(
+  # our three pairwise comparisons
+  CasevsControl = "Case - Control",
+  levels = design
+)
+
+contr_matrix
+# Creating variance modelling by voom
+v <- voom(dge, design, plot = TRUE)
+# fit linear model on voom output
+vfit <- lmFit(v)
+
+# check coefficients
+head(vfit$coefficients)
+#compare it to the contrast matrix and find the coefficients
+vfit <- contrasts.fit(vfit, contrasts = contr_matrix)
+head(vfit$coefficients)
+# doing the statistical testing
+efit <- eBayes(vfit)
+efit
+```
+
+This plot shows a relationship between average gene expression and residual variability. Each black point represents a gene. The graph showed that higher count genes have less variability compared to lower count gene. This accounts for the mean-variance relationship between the samples, but it still does not distinguish DE genes nor statistical assumptions.
+
+```{r}
+#statistical testing to identify significant genes
+dt <- decideTests(efit)
+summary(dt)
+top <- topTable(efit, coef = "CasevsControl", n = Inf)
+
+# I want to convert top dataframe to tibble and combine genes_key variable to the top_tibble.
+top_tibble <- as_tibble(top)
+top_tibble <- top_tibble %>% 
+  na.omit() %>% 
+  dplyr::mutate(genes = as.character(genes)) %>% 
+  dplyr::rename(entrezid = genes) %>% 
+  left_join(genes_key, by = "entrezid")
+
+top_tibble # Now we have a top_tibble dataframe that have gene names on each 
+```
+
+We classified the genes using decideTests() with Benjamini-Hochberg (BH) adjustment to account for multiple genes and an adjusted p-value threshold of 0.05. The adjustment using BH can control false positives among the results. There's other methods that can be used to normalise the data, which is Bonferroni correction however it can reduce the number of sets and introduce a false negative or type II error[@armstrong2014].
+
+TopTable () was used to get the numerical results from statistical testing comparing the control group to the case group, providing the p-value and adjusted p-value. We found 23 significant genes, with missing information on which genes are up-regulated or down-regulated. In the top_tibble, we found a missing gene name with Entrez ID "124907837". ncbi.nlm.nih.gov shown that it match SULT1A3 encodes sulfotransferase family 1A member 3 and responsible for catalyzing the sulfation reaction on dopamine to dopamine-sulfate. This reaction results in a depletion of dopamine concentration and a clear biomarker for Parkinson's Disease [@chen2021; ].
+
+```{r}
+# updating top_tibble dataframe with a new name 
+top_tibble_updated <- top_tibble %>%
+  mutate(
+    entrezid = as.character(entrezid),
+    gene_name =ifelse(
+      entrezid == "124907837",
+      "SULT1A3",
+      gene_name
+    ), # add description 
+    entrezid = as.character(entrezid),
+    description =ifelse(
+      entrezid == "124907837",
+      "sulfotransferase family 1A member 3",
+      description
+    )
+  )
+top_tibble_updated
+  
+```
+
+# Answering the questions
+
+1.  **Which genes are differentially expressed between PD cases and healthy controls? Please also visualise your DE results with appropriate plot(s)**
+
+```{r}
+# Creating volcano plot variable
+vol_plot_data <- tibble(
+  entrezid = as.character(rownames(efit$coefficients)),
+  logFC = efit$coefficients[, "CasevsControl"],
+  AvgExpr = efit$Amean,
+  status = factor(as.numeric(dt[, "CasevsControl"])),
+  gene = efit$genes$SYMBOL,
+  p_value = efit$p.value[, "CasevsControl"]) %>% 
+  left_join(top_tibble_updated %>%
+              transmute(
+                entrezid = as.character(entrezid),
+                gene_name) %>%
+              distinct(), by ="entrezid"
+              ) %>% left_join(
+                top_tibble %>%
+                  dplyr::select(entrezid, adj.P.Val),
+                by = "entrezid"
+              )
+# Edditing our vol_plot_data tibble so they can be assigned to a new factor 
+vol_plot_data_fct <- vol_plot_data %>%
+  mutate(
+    # replace status with a new factor
+    status = factor(
+      status,
+      # levels (order is not DE, down, up)
+      levels = c(0, -1, 1),
+      # labels for the numbers so they are readble
+      labels = c("Not DE", "Down", "Up")
+    )
+  )
+#assigning the colour for each up, down, and not significant
+scale_cols <- c(
+  "Not DE" = "grey",
+  "Down" = "blue",
+  "Up" = "red"
+)
+
+```
+
+```{r}
+#creating a volcano plot
+
+
+vol_plot_image<- ggplot(
+  vol_plot_data_fct, 
+  aes(x = logFC, y = -log10(pmax(adj.P.Val, 1e-300)), col = status)) +
+  geom_point(
+    data = vol_plot_data_fct %>% filter(status == "Not DE"),
+    size = 0.1
+  ) +
+  geom_point(data = vol_plot_data_fct %>% 
+               filter(status != "Not DE"), size = 1) + 
+  geom_vline(xintercept = c(-1,1), color = "black", linetype = "dashed") + 
+  geom_hline(yintercept = -log10(0.05), color ="black", linetype = "dashed") +
+  geom_text_repel(
+    data = vol_plot_data_fct %>%
+      filter(status != "Not DE"),
+    aes(label = gene_name, ),
+    max.overlaps = Inf,
+    show.legend = FALSE) + 
+  scale_colour_manual(values = scale_cols) +
+  theme_classic() +
+  labs(title = "Volcano plot for Case vs Control",
+       x = "log2 fold change (Parkinson's Disease case/ Control )",
+       y = "-log10(adjusted p-value)")
+vol_plot_image
+ggsave("C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/result/rnaseq_PD volcano.png", width = 23, height = 17, units = "cm")
+
+```
+
+The volcano plot compares gene expression between PD case and healthy control samples. The x-axis shows log2 fold change between control relative to case, while the y-axis shows - log10 of the p-value. Higher points are more significant compared to lower points. Genes that have higher expression on both down-regulated or up-regulated has the positions more to the left or right, respectively.
+
+Overall, 14 genes have higher expression in PD while 9 have lower expression in PD. MAOB shows the strongest gene expression and statistical evidence. PRKAA2 has the strongest evidence among genes higher in PD, while ULK2 has the strongest expression. Among down-regulated genes, PRKAA2 has the strongest statistical evidence, while RNF166 has the highest expression difference. However, these sample shows a contrary evidence against the literature as ULK2 is supposed to be among the down-regulated genes Howe[@wang2026]. Furthermore, MAOB is a gene responsible in producing MPP+ which can cause a cell death to dopamine producing cell which caused Parkinson's disease [@tan2022]. While some other gene such as RNF166 that responsible in cell death does belong to up-regulated genes [@oh2020].
+
+2.  Which gene ontology families do the DE genes belong to?
+
+```{r}
+de_go_summary <- top_tibble_updated %>%
+  # Define significance using adjusted p-values.
+  filter(adj.P.Val < 0.05) %>%
+  mutate(entrezid = as.character(entrezid)) %>%
+  # Add GO categories by matching Entrez IDs.
+  inner_join(
+    gene_ontology %>%
+      transmute(
+        entrezid = as.character(entrezgene_id),
+        go_id,
+        category = desc
+      ) %>%
+      distinct(),
+    by = "entrezid"
+  ) %>%
+  # Count each gene once within each GO category.
+  dplyr::distinct(go_id, category, entrezid, .keep_all = TRUE) %>%
+  # Summarise the number and names of DE genes in each category.
+  group_by(go_id, category) %>%
+  summarise(
+    de_genes = n_distinct(entrezid),
+    up_in_pd = sum(logFC > 0),
+    down_in_pd = sum(logFC < 0),
+    gene_names = paste(sort(unique(gene_name)), collapse = ","),
+.groups ="drop"
+  ) %>%
+  arrange(desc(de_genes))
+
+de_go_summary_table <- knitr::kable(de_go_summary)
+de_go_summary_table
+
+#downloading packages to write in excel file
+install.packages("writexl")
+writexl::write_xlsx(
+  de_go_summary,
+  "C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/result/rna_Q2_gene_ontology.xlsx"
+)
+
+```
+
+These tables summarise DE genes that are up-regulated and down-regulated and group them based on their ontology-associated group. It shows that ATG12, ATG3, LRSAM1, PARK7, PRKAA1, PRKAA2, RAB1A, RNF166, RNF41, STK11, TRIM5, ULK2, VPS18, and WDR24 belong to autophagy associated genes. These have higher expression in PD cases. Seven dopamine-category genes LRTOMT, MAOA, MAOB, MOXD1, PDE1B, SULT1A1, and SULT1A3. These have lower expression in PD. While there are only two oxidative phosphorylation members, COX7A1 and FXN that also have lower expression in PD.
+
+3.  Is the clustering of samples by gene expression consistent with their disease status as cases and controls?
+
+```{r}
+
+# Find top 30 most significant genes to label
+top_de_genes <- vol_plot_data_fct %>%
+  slice_min(n = 30, p_value)
+# filter the count matrix to find just those genes
+top_gene_expr <- cpm(dge, log = TRUE)[as.character(top_de_genes$entrezid), ]
+rownames(top_gene_expr) <- top_de_genes$gene_name
+# annotation information for the heatmap
+sample_anno <- dge$samples %>%
+  dplyr::select(group)
+
+# creating your heatmap
+heatmap <- pheatmap(
+  top_gene_expr,
+  color = colorRampPalette(c("blue", "white", "red"))(100),
+  scale = "row",
+  annotation_col = sample_anno,
+  border_color = NA,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  fontsize_row = 6
+)
+#save your heatmap by right click on your plot 
+
+
+```
+
+Red indicates expression above the mean across samples, and blue indicates expression below the mean across samples. The differences in color intensity represent row z-scores, comparing samples within each gene. Green and pink represent the control and PD groups; dendrograms show groups with similar profiles.
+
+Cases 1-5 show a clear, distinct grouping. Generally, have higher expression of autophagy-associated genes such as PRKAA2, ATG12, and ULK2, and lower expression of MAOB, MAOA, and COX7A1. While cases 6-8 cluster with controls. The clustering is partly consistent with disease status, but does not have a clear separation of cases from controls.
+
+There are 30 selected genes, including 23 significant genes and 7 non-significant genes. The heatmap showed disease-associated patterns and not independent validations.
