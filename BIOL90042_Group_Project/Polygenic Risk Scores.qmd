@@ -1,0 +1,84 @@
+---
+title: "Polygenic Risk Scores"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+
+# Read in Datasets
+load("prs.Rda")
+
+# Pivot the data longer so that beta can be assigned to each locus for each individual
+genotypes_longer <- ca_co_genotypes |> 
+  pivot_longer(
+    cols = starts_with("locus_"),
+    names_to = "locus",
+    values_to = "allele_frequency"
+  )
+# Assign the beta value to each locus for each individual
+genotypes_longer_beta <- left_join(
+  genotypes_longer,
+  gwas_top_hits,
+  by = "locus"
+)
+
+# Determine the contribution of each SNP towards the PRS
+genotypes_longer_beta_contribution <- genotypes_longer_beta |> 
+  mutate(contribution = allele_frequency * beta)
+
+# Sum each SNP's contribution to the PRS for each individual, noting disease status
+prs_scores <- genotypes_longer_beta_contribution |> 
+  group_by(donorid,status) |> 
+  summarise(PRS=sum(contribution)) |>
+  ungroup()
+
+# Find Individual with highest and lowest PRS
+prs_scores |> 
+  slice_max(PRS, n = 1)
+prs_scores |> 
+  slice_min(PRS, n = 1)
+'''
+```
+
+```{r}
+# Density plot gives a good perspective on the shift that status has with polygenic risk status
+ggplot(data = prs_scores, aes(x = PRS, colour = status))+
+  geom_density() +
+  labs(
+    x = "Polygenic Risk Score",
+    y = "Density",
+    colour = "Status",
+    title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
+  theme_minimal ()
+
+# Boxplot gives an easy visualisation for the basic 5 figure summary
+ggplot(data = prs_scores, aes(x = PRS, y = status))+
+  geom_boxplot() +
+  labs(
+    x = "Polygenic Risk Score",
+    y = "Case/Control Status",
+    title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
+  theme_minimal ()
+
+# Comparison of 5 figure summarry
+prs_scores |> 
+  group_by (status) |> 
+  summarise(
+    n=n(),
+    mean = mean(PRS),
+    median = median(PRS),
+    sd = sd(PRS),
+    minimum = min(PRS),
+    maximum = max(PRS))
+
+# Normal Distribution
+ggplot(data = prs_scores, aes(sample = PRS)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~status)
+
+# Test Statistic
+t.test(PRS ~ status, data = prs_scores, var.equal = TRUE)
+```
