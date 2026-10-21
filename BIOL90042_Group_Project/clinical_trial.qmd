@@ -44,9 +44,9 @@ gait_long <- gait_data |>
   )
 ```
 
-#### Question 1:
+### Question 1:
 
-Plot each participants' gait data and describe it using descriptive statistics. Which of these descriptive statistics do you think is most useful for capturing the overall gait smoothness and balance of a participant?
+*Plot each participants' gait data and describe it using descriptive statistics. Which of these descriptive statistics do you think is most useful for capturing the overall gait smoothness and balance of a participant?*
 
 #### Check for Missing Values: 
 
@@ -1578,7 +1578,7 @@ These descriptive statistics for RMS gait deviation provide the most useful info
 
 To best capture smoothness, measuring the variability between each observed time point allows insight into how the participant moved second to second. Having "smoother" movement would be represented as less change between each time point.
 
-This can be measured through Root Mean Square of Successive Differences (RMSSD). It summarises how much a participants angle changes between consecutive time points.
+This can be measured through Root Mean Square of Successive Differences (RMSSD). It summarises how much a participants angle changes between consecutive time points, allowing a second-to-second angular variability measurement. Capturing a greater representation of smoothness.
 
 #### Root Mean Square of Successive Differences (RMSSD):
 
@@ -1861,56 +1861,333 @@ Participants receiving the new compound with exercise have the lowest RMSSD valu
 
 Between the RMS and RMSSD values, these provide the best descriptive statistics to capture both gait balance and smoothness for participants.
 
-Using Root Square Mean to compare deviations from upright:
+### Question 2:
+
+*Is there a statistically significant difference in gait between participants receiving L-DOPA and the new compound? Ensure that you check your assumptions.*
+
+To investigate whether gait differed between participants receiving L-DOPA and the new compound, participant-level root mean square (RMS) gait deviation was selected as the primary outcome. RMS summarises deviation from upright across the recording, with lower values indicating smaller overall deviations. Each participant contributed one RMS score, giving eight independent observations per treatment group.
+
+#### **RMS analysis:** Comparison of Overall Gait Deviation Between Treatments
+
+**Assumption Checks:**
+
+**Independence:** Independence between participants was assumed based on the study design, with each participant contributing data to only one treatment group and no known matching or clustering between participants. Repeated gait readings were summarised into one RMS value per participant, so the analysis used 16 participant-level observations rather than treating all individual readings as independent.
+
+**Normality and Skewness:** Normality will be assessed through Q-Q plots, and Shapiro-Wilk test.
+
+**Continuous Outcome:** RMS is a numerical, continuous measurement
+
+**Extreme or Influential Observations:** Participant RMS plots will be inspected for unusually high or low values. If identified, their influence on the estimated treatment difference will be assessed through a sensitivity analysis.
 
 ```{r}
-model_treatment <- lm(
+# Consistent treatment colours
+treatment_colours <- c(
+  "L-DOPA control" = "#D55E00",
+  "New compound" = "#0072B2"
+)
+
+# Q–Q plots for each treatment group
+qq_plot <- ggplot(
+  participant_stats,
+  aes(sample = rms_gait, colour = treatment)
+) +
+  stat_qq(size = 3) +
+  stat_qq_line(colour = "black") +
+  facet_wrap(~ treatment) +
+  scale_colour_manual(values = treatment_colours) +
+  labs(
+    title = "Q–Q Plots of Participant RMS",
+    x = "Theoretical quantiles",
+    y = "RMS (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save Q–Q plots
+qq_plot
+
+ggsave(
+  filename = "rms_qq_plots.png",
+  plot = qq_plot,
+  width = 10,
+  height = 5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+# Shapiro–Wilk normality test within each treatment
+normality_results <- participant_stats |>
+  group_by(treatment) |>
+  summarise(
+    shapiro_p = shapiro.test(rms_gait)$p.value,
+    .groups = "drop"
+  )
+
+print(normality_results)
+
+# Boxplot with participant scores coloured by treatment
+rms_boxplot <- ggplot(
+  participant_stats,
+  aes(x = treatment, y = rms_gait)
+) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = treatment),
+    position = position_jitter(
+      width = 0.08,
+      height = 0,
+      seed = 123
+    ),
+    shape = 16,
+    size = 3,
+    alpha = 0.8
+  ) +
+  scale_colour_manual(values = treatment_colours) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS Gait Deviation by Treatment",
+    x = "Treatment",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save the boxplot
+rms_boxplot
+
+ggsave(
+  filename = "rms_treatment_assumptions.png",
+  plot = rms_boxplot,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Shapiro–Wilk tests did not detect significant departures from normality in either treatment group (L-DOPA: p = 0.109; new compound: p = 0.554). The new-compound Q–Q plot was broadly consistent with normality, while the L-DOPA plot showed a tail departure, particularly one high RMS score (as seen in the boxplot). Considering these findings alongside the study design, the assumptions were judged sufficiently reasonable to proceed with Welch’s t-test, although the small sample sizes warranted caution, and a sensitivity analysis is planned to assess the influence of the high L-DOPA observation.
+
+#### Two-Sided Welch's Independent-Samples t-test:
+
+Based on this, a A two-sided Welch’s independent-samples t-test will be used to compare the mean participant RMS gait deviation between the L-DOPA and new-compound groups, using a significance level of 0.05. All 16 participants will be included in the primary analysis. A sensitivity analysis will repeat the test without the highest L-DOPA RMS observation to assess its influence on the estimated difference and conclusions.
+
+```{r}
+# Set the comparison direction: new compound minus L-DOPA
+test_data <- participant_stats |>
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("New compound", "L-DOPA control")
+    )
+  )
+
+# Primary analysis: include every participant
+primary_test <- t.test(
   rms_gait ~ treatment,
-  data = participant_stats
+  data = test_data,
+  var.equal = FALSE,
+  alternative = "two.sided"
 )
 
-summary(model_treatment)
-confint(model_treatment)
-```
+primary_test
 
-Using Standard Deviation:
+# Identify the participant with the highest L-DOPA RMS
+high_participant <- test_data |>
+  filter(treatment == "L-DOPA control") |>
+  slice_max(rms_gait, n = 1, with_ties = FALSE)
 
-```{r}
-model_treatment <- lm(
-  sd_gait ~ treatment,
-  data = participant_stats
+print(high_participant)
+
+# Sensitivity analysis: temporarily exclude that participant
+sensitivity_test <- t.test(
+  rms_gait ~ treatment,
+  data = filter(
+    test_data,
+    donorid != high_participant$donorid
+  ),
+  var.equal = FALSE,
+  alternative = "two.sided"
 )
 
-summary(model_treatment)
-confint(model_treatment)
+sensitivity_test
 ```
 
-Checking the reference group:
+The primary Welch’s t-test found a statistically significant difference in mean RMS gait deviation between treatments: the new-compound group averaged 7.19°, compared with 10.94° for L-DOPA. The estimated difference was −3.76° (95% CI: −7.30° to −0.21°; *p* = 0.039), indicating lower overall deviation from upright with the new compound.
+
+After excluding the highest L-DOPA observation, the estimated difference remained in the same direction but decreased to −2.85° (95% CI: −6.00° to 0.29°; *p* = 0.071). This sensitivity analysis did not reach the 0.05 significance threshold.
+
+Therefore, the full-data analysis supports a treatment difference, but the statistical significance is sensitive to that participant’s inclusion.
+
+#### **RMSSD analysis:** Comparison of Second-to-Second Angular Variability Between Treatments
+
+Participant-level root mean square of successive differences (RMSSD) was selected as a secondary outcome. RMSSD summarises changes in gait angle between consecutive seconds, with lower values indicating smaller changes. Each participant contributed one RMSSD score. This complements RMS by describing second-to-second angular variability rather than overall deviation from upright.
+
+**Assumption checks**
+
+**Independence:** The same study-design considerations apply as in the RMS analysis. Each participant contributed one score and belonged to only one treatment group.
+
+**Normality and skewness:** Treatment-specific Q–Q plots and Shapiro–Wilk tests will assess whether the RMSSD distributions are approximately normal.
+
+**Continuous outcome:** RMSSD is a numerical, continuous measurement.
+
+**Extreme or influential observations:** Participant RMSSD scores will be inspected for unusually high or low values. If identified, their influence will be assessed through a sensitivity analysis.
 
 ```{r}
-levels(participant_stats$treatment)
+# Q–Q plots for participant RMSSD
+rmssd_qq_plot <- ggplot(
+  participant_smoothness,
+  aes(sample = rmssd_gait, colour = treatment)
+) +
+  stat_qq(size = 3) +
+  stat_qq_line(colour = "black") +
+  facet_wrap(~ treatment) +
+  scale_colour_manual(values = treatment_colours) +
+  labs(
+    title = "Q–Q Plots of Participant RMSSD",
+    x = "Theoretical quantiles",
+    y = "RMSSD (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save
+rmssd_qq_plot
+
+ggsave(
+  filename = "rmssd_qq_plots.png",
+  plot = rmssd_qq_plot,
+  width = 10,
+  height = 5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+# Shapiro–Wilk tests within each treatment
+rmssd_normality_results <- participant_smoothness |>
+  group_by(treatment) |>
+  summarise(
+    shapiro_p = shapiro.test(rmssd_gait)$p.value,
+    .groups = "drop"
+  )
+
+print(rmssd_normality_results)
+
+# Inspect individual RMSSD scores
+rmssd_boxplot <- ggplot(
+  participant_smoothness,
+  aes(x = treatment, y = rmssd_gait)
+) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = treatment),
+    position = position_jitter(
+      width = 0.08,
+      height = 0,
+      seed = 123
+    ),
+    shape = 16,
+    size = 3,
+    alpha = 0.8
+  ) +
+  scale_colour_manual(values = treatment_colours) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "Second-to-Second Angular Variability by Treatment",
+    x = "Treatment",
+    y = "Participant RMSSD (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save
+rmssd_boxplot
+
+ggsave(
+  filename = "rmssd_treatment_assumptions.png",
+  plot = rmssd_boxplot,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
 ```
+
+Shapiro–Wilk tests did not detect significant departures from normality in either treatment group (L-DOPA: p = 0.0999; new compound: p = 0.696). The new-compound Q–Q plot was broadly consistent with normality, while the L-DOPA plot showed tail departure, particularly one high RMSSD score of approximately 24°. Considering these findings alongside the study design, the assumptions were judged sufficiently reasonable to proceed with Welch’s t-test, although the small sample sizes warrant caution. A sensitivity analysis will assess the influence of the high L-DOPA observation.
+
+A two-sided Welch’s independent-samples t-test will compare mean participant RMSSD between treatments. All 16 participants will be included in the main analysis, followed by a sensitivity analysis excluding the participant with the highest L-DOPA RMSSD.
+
+```{r}
+# Set the comparison direction: new compound minus L-DOPA
+rmssd_test_data <- participant_smoothness |>
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("New compound", "L-DOPA control")
+    )
+  )
+
+# Main RMSSD analysis: include all participants
+rmssd_test <- t.test(
+  rmssd_gait ~ treatment,
+  data = rmssd_test_data,
+  var.equal = FALSE,
+  alternative = "two.sided"
+)
+
+rmssd_test
+
+# Identify the highest L-DOPA RMSSD observation
+high_rmssd_participant <- rmssd_test_data |>
+  filter(treatment == "L-DOPA control") |>
+  slice_max(rmssd_gait, n = 1, with_ties = FALSE)
+
+print(high_rmssd_participant)
+
+# Sensitivity analysis: temporarily exclude that participant
+rmssd_sensitivity_test <- t.test(
+  rmssd_gait ~ treatment,
+  data = filter(
+    rmssd_test_data,
+    donorid != high_rmssd_participant$donorid
+  ),
+  var.equal = FALSE,
+  alternative = "two.sided"
+)
+
+rmssd_sensitivity_test
+```
+
+The new-compound group had a lower mean RMSSD (10.21°) than the L-DOPA group (15.43°), indicating smaller second-to-second changes in gait angle. The estimated difference was −5.21° (95% CI: −10.20° to −0.22°; unadjusted *p* = 0.0419), which was statistically significant before adjustment for testing two outcomes.
+
+After excluding participant d209, the difference decreased to −3.94° (95% CI: −8.37° to 0.49°; *p* = 0.0755). The direction remained consistent, but the result no longer reached the 0.05 threshold, showing that statistical significance was sensitive to this participant’s inclusion.
+
+### Question 3: 
+
+*Does either of age or the exercise regime affect gait? If so, take this into consideration when investigating the relationship between the treatment and gait.*
 
 Accounting for exercise and age, Using RMS:
 
 ```{r}
 model_adjusted <- lm(
   rms_gait ~ treatment + exercise + age,
-  data = participant_stats
-)
-
-summary(model_adjusted)
-confint(model_adjusted)
-
-# Test each predictor while accounting for the other two
-drop1(model_adjusted, test = "F")
-```
-
-Accounting for Exercise and Age, using SD:
-
-```{r}
-model_adjusted <- lm(
-  sd_gait ~ treatment + exercise + age,
   data = participant_stats
 )
 
@@ -1960,94 +2237,14 @@ ggplot(
   theme_minimal()
 ```
 
-Three Visual Descriptive Statistics for Root Mean Squares:
+#### 
 
-```{r}
-# Boxplot for Treatment v RMS score
-ggplot(participant_stats, aes(x = treatment, y = rms_gait)) +
-  geom_boxplot(
-    width = 0.5,
-    fill = "grey90",
-    outlier.shape = NA
-  ) +
-  geom_point(
-    position = position_jitter(width = 0.08, height = 0, seed = 123),
-    size = 3,
-    alpha = 0.8
-  ) +
-  scale_y_continuous(
-    limits = c(0, NA),
-    expand = expansion(mult = c(0, 0.1))
-  ) +
-  labs(
-    title = "RMS gait deviation by treatment",
-    x = "Treatment",
-    y = "Participant RMS (degrees)"
-  ) +
-  theme_minimal()
+### Notes: What needs to be fixed
 
+- Align titles
 
-# Boxplot for Exercise v RMS score
-ggplot(participant_stats, aes(x = exercise, y = rms_gait)) +
-  geom_boxplot(
-    width = 0.5,
-    fill = "grey90",
-    outlier.shape = NA
-  ) +
-  geom_point(
-    aes(colour = exercise),
-    position = position_jitter(width = 0.08, height = 0, seed = 123),
-    size = 3,
-    alpha = 0.8
-  ) +
-  scale_x_discrete(
-    limits = c("n", "y"),
-    labels = c("n" = "No exercise", "y" = "Exercise")
-  ) +
-  scale_colour_manual(
-    values = c("n" = "#D55E00", "y" = "#0072B2"),
-    guide = "none"
-  ) +
-  scale_y_continuous(
-    limits = c(0, NA),
-    expand = expansion(mult = c(0, 0.1))
-  ) +
-  labs(
-    title = "RMS gait deviation by exercise",
-    x = "Exercise",
-    y = "Participant RMS (degrees)"
-  ) +
-  theme_minimal()
+- Make graphs consistent
 
+- Have all library() functions at the start of the analysis
 
-# Scatterplot for Age v RMS score
-ggplot(participant_stats, aes(x = age, y = rms_gait)) +
-  geom_point(
-    size = 3,
-    alpha = 0.8,
-    colour = "#0072B2"
-  ) +
-  geom_smooth(
-    method = "lm",
-    formula = y ~ x,
-    se = TRUE,
-    colour = "black"
-  ) +
-  coord_cartesian(ylim = c(0, NA)) +
-  labs(
-    title = "RMS gait deviation by age",
-    x = "Age (years)",
-    y = "Participant RMS (degrees)"
-  ) +
-  theme_minimal()
-```
-
-#### Assumptions to Check: 
-
-If I want to run a linear or mixed linear model;
-
-- A normal linear regression assumes independence of outcome data. This is not true, as the 700 observations are in a time series to each participant.
-
-```{r}
-
-```
+- Make sure code runs when environment is cleaned
