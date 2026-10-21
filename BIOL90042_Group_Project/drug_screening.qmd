@@ -145,7 +145,7 @@ ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
 
 5.  Analysis for Q1
 
-To check for spatial patterns, I plotted the luminescence (RLU) of each of the 1,536 wells at its physical position using geom_tile(). Luminescence was broadly uniform, with most wells between approximately 450 and 550 RLU. There was no evidence of an edge effect: the median RLU of the 156 outer wells (499.5) was virtually identical to that of the 1,380 inner wells (499.0). Row medians ranged from 490.5 to 507.5 and column medians from 485 to 511.5, a spread small relative to the well-to-well standard deviation (\~30 RLU), so there was no evidence of row, column or gradient effects. Eighteen wells had luminescence more than 3 standard deviations above the mean of the control wells (\> 577 RLU). 18 contained test compounds and none contained a control compound, and they were scattered across the plate rather than clustered. This is consistent with compound-specific effects rather than a positional artefact, and is tested formally in Q2. I therefore did not apply a plate-position correction.
+To check for spatial patterns, I plotted the luminescence (RLU) of each of the 1,536 wells at its physical position using geom_tile(). Luminescence was broadly uniform, with most wells between approximately 450 and 550 RLU. There was no evidence of an edge effect: the median RLU of the 156 outer wells (499.5) was virtually identical to that of the 1,380 inner wells (499.0). Row medians ranged from 490.5 to 507.5 and column medians from 485 to 511.5, a spread small relative to the well-to-well standard deviation (32.9 RLU), so there was no evidence of row, column or gradient effects. Eighteen wells had luminescence more than 3 standard deviations above the mean of the control wells (\> 577 RLU). All 18 contained test compounds and none contained a control compound, and they were scattered across the plate rather than clustered. This is consistent with compound-specific effects rather than a positional artefact, and is tested formally in Q2. I therefore did not apply a plate-position correction.
 
 ## **Q2: Which compounds are statistically significantly associated with increased neuronal viability after MPP exposure? Ensure that you check your assumptions.**
 
@@ -181,7 +181,7 @@ plate_long |>
   summarise(median_sd = median(sd), .by = type)
 ```
 
-Four wells per group are too few to check normality for each compound separately, so I subtracted each group's mean from its wells and checked the pooled residuals. The QQ plot followed the theoretical line with only slight deviations in the tails, and the Shapiro-Wilk test gave no evidence against normality (p = 0.26). The boxplot and group SDs showed a similar spread for test and control wells (median SD 21.5 vs 23.6 RLU).Each well is a separate replicate, and Q1 showed no positional pattern in luminescence, so I treated the wells as independent observations.
+Four wells per group are too few to check normality for each compound separately, so I subtracted each group's mean from its wells and checked the pooled residuals. The QQ plot followed the theoretical line with only slight deviations in the tails, and the Shapiro-Wilk test gave no evidence against normality (p = 0.26). The boxplot and group SDs showed a similar spread for test and control wells (median SD 21.5 vs 23.6 RLU). Each well is a separate replicate, and Q1 showed no positional pattern in luminescence, so I treated the wells as independent observations.
 
 2.  Run the test
 
@@ -227,7 +227,7 @@ plate_long |>
 
 ## **Q3: What are the mechanisms of action and targets of the compounds you identify in Q2?**
 
-1.  The hit compounds were matched to compound_dict by ID to find their targets.
+The hit compounds were matched to compound_dict by ID to find their targets.
 
 ```{r}
 hits_info <- hits |>
