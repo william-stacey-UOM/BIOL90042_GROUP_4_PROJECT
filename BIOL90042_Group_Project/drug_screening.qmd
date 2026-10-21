@@ -81,13 +81,15 @@ all(plate_long$pair_id %in% compound_dict$id)
 
 ```{r}
 # Q1: Heatmap of luminescence across the plate
-ggplot(plate_long, aes(x = col_num, y = row_num, fill = rlu)) +
+p_heatmap <- ggplot(plate_long, aes(x = col_num, y = row_num, fill = rlu)) +
   geom_tile() +
   scale_y_reverse() +
   scale_fill_viridis_c() +
   coord_equal() +
   labs(title = "Luminescence across the plate",
        x = "Column", y = "Row", fill = "RLU")
+p_heatmap
+ggsave("result/drug_q1_heatmap.png", p_heatmap, width = 8, height = 5, dpi = 300)
 ```
 
 2.  filter the bright wells (more than 3 SD above the control mean)
@@ -130,7 +132,7 @@ plate_long |> group_by(col_num) |> summarise(m = median(rlu)) |> summarise(min =
 ```{r}
 # which wells are test vs control?
 
-ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
+p_layout <- ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
   geom_tile(colour = "white", linewidth = 0.2) +   
   scale_y_reverse() +
   scale_fill_manual(
@@ -141,6 +143,10 @@ ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
   labs(title = "Plate layout: test vs control wells",
        x = "Column", y = "Row", fill = NULL) +
   theme_minimal()
+
+p_layout
+ggsave("result/drug_q1_layout.png", p_layout, width = 8, height = 5, dpi = 300)
+
 ```
 
 5.  Analysis for Q1
@@ -160,20 +166,25 @@ resid_df <- plate_long |>
   mutate(resid = rlu - mean(rlu), .by = c(pair_id, type))
 
 # Normality: QQ plot (points should follow the line)
-ggplot(resid_df, aes(sample = resid)) +
+p_qq <- ggplot(resid_df, aes(sample = resid)) +
   geom_qq() +
   geom_qq_line() +
   labs(title = "QQ plot of residuals",
        x = "Theoretical quantiles", y = "Sample quantiles")
 
+p_qq
+ggsave("result/drug_q2_qqplot.png", p_qq, width = 6, height = 5, dpi = 300)
+
 # Normality: Shapiro-Wilk test (p > 0.05 = no evidence against normality)
 resid_df |> pull(resid) |> shapiro.test()
 
 # Equal variance: compare the spread of test and control wells with a boxplot
-ggplot(resid_df, aes(x = type, y = resid)) +
+p_resid <- ggplot(resid_df, aes(x = type, y = resid)) +
   geom_boxplot() +
   labs(title = "Spread of residuals: test vs control",
        x = "Well type", y = "Residual (RLU)")
+p_resid
+ggsave("result/drug_q2_residual_boxplot.png", p_resid, width = 6, height = 5, dpi = 300)
 
 # Spread as numbers: SD within each group, then the median SD per type
 plate_long |>
@@ -212,7 +223,7 @@ Four of the 192 test compounds significantly increased neuronal viability compar
 
 ```{r}
 # The 4 wells of each hit compound vs its control
-plate_long |>
+p_hits <- plate_long |>
   filter(pair_id %in% hits$pair_id) |>
   ggplot(aes(x = type, y = rlu, colour = type)) +
   geom_boxplot(outlier.shape = NA) +
@@ -223,6 +234,9 @@ plate_long |>
        x = "Well type", y = "Luminescence (RLU)") +
   theme_minimal() +
   theme(legend.position = "none")
+
+p_hits
+ggsave("result/drug_q2_hits.png", p_hits, width = 9, height = 4, dpi = 300)
 ```
 
 ## **Q3: What are the mechanisms of action and targets of the compounds you identify in Q2?**
