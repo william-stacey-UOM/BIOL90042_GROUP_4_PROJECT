@@ -4,13 +4,7 @@ format: html
 editor: visual
 ---
 
-### **Drug Screening**
-
-compound_dict: include id, target_enzyme, action(agonist/antagonist），hgnc_symbol(target name)
-
-plate_meta: plate row and drug name.
-
-plate1: luminescence readings-higher relative light units, better the cells live(RLU=relative light units)
+# **Drug Screening**
 
 **step0 : load data**
 
@@ -47,43 +41,41 @@ head(plate_long)
 unique(plate_long$compound) |> head(20)
 
 # 2. Compound IDs in compound_dict (first 20)
-#    These have NO suffix, and only describe the 192 test compounds
 head(compound_dict$id, 20)
 
 # 3. Count how many unique names end in "_test" and "_ctrl"
-#    Expected: 192 of each (192 test + 192 control compounds)
 unique(plate_long$compound) |>
   str_extract("(test|ctrl)$") |>
   table()
 ```
 
-**step3** split out pair ID and type
+**step 3:** split out pair ID and type
 
 ```{r}
 
 # Split the compound name into pair ID and type
 plate_long <- plate_long |>
   mutate(
-    # remove "_test" or "_ctrl" at the end -> e.g. "cmpd_4854"
+    # remove "_test" or "_ctrl" at the end
     pair_id = str_remove(compound, "_(test|ctrl)$"),
     # keep only "test" or "ctrl" at the end
     type = str_extract(compound, "(test|ctrl)$")
   )
 
-# Check 1: how many wells per type? (should be 768 each)
+# Check 1: how many wells per type? 
 count(plate_long, type)
 
-# Check 2: how many pairs? (should be 192)
+# Check 2: how many pairs? 
 n_distinct(plate_long$pair_id)
 
-# Check 3: every pair should have 8 wells (4 test + 4 ctrl)
+# Check 3: every pair 
 count(plate_long, pair_id, type) |> count(n)
 
-# Check 4: do all pair IDs exist in compound_dict? (should be TRUE)
+# Check 4: do all pair IDs exist in compound_dict? 
 all(plate_long$pair_id %in% compound_dict$id)
 ```
 
-**Q1-Heatmap of luminescence across the plate**
+## **Q1-Heatmap of luminescence across the plate**
 
 1.  create a heatmap
 
@@ -98,16 +90,25 @@ ggplot(plate_long, aes(x = col_num, y = row_num, fill = rlu)) +
        x = "Column", y = "Row", fill = "RLU")
 ```
 
-2.  filter the bright wells(RLU \> 650)
+2.  filter the bright wells (more than 3 SD above the control mean)
 
 ```{r}
-# Which type are the brightest wells? (RLU > 650)
+# Define "bright" as more than 3 SDs above the mean of the control wells
+# (control wells have no known activity, so they show the normal noise level)
+ctrl_rlu <- plate_long |>
+  filter(type == "ctrl") |>
+  pull(rlu)
+
+threshold <- mean(ctrl_rlu) + 3 * sd(ctrl_rlu)
+threshold
+
+# Which type are the bright wells?
 plate_long |>
-  filter(rlu > 650) |>   # keep only very bright wells 
-  count(type)            # count by test vs ctrl
+  filter(rlu > threshold) |>
+  summarise(n = n(), .by = type)
 ```
 
-3.   Numeric check
+3.  Numeric check
 
 ```{r}
 # Compare outer wells vs inner wells (edge effect check)
@@ -122,22 +123,19 @@ plate_long |>
 plate_long |> group_by(row_num) |> summarise(m = median(rlu)) |> summarise(min = min(m), max = max(m))
 plate_long |> group_by(col_num) |> summarise(m = median(rlu)) |> summarise(min = min(m), max = max(m))
 
-# Number of very bright wells and their type
-plate_long |> filter(rlu > 650) |> count(type)
-
 ```
 
 4.  which wells are test vs control
 
 ```{r}
-# Optional: which wells are test vs control?
+# which wells are test vs control?
 
 ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
-  geom_tile(colour = "white", linewidth = 0.2) +   # thin white gaps / 细白边
+  geom_tile(colour = "white", linewidth = 0.2) +   
   scale_y_reverse() +
   scale_fill_manual(
-    values = c(test = "#D6A5A0", ctrl = "#6B8CAE"),  # teal vs sand-orange 
-    labels = c(test = "Test compound", ctrl = "Control")  # nicer legend text 
+    values = c(test = "#D6A5A0", ctrl = "#6B8CAE"), 
+    labels = c(test = "Test compound", ctrl = "Control") 
   ) +
   coord_equal() +
   labs(title = "Plate layout: test vs control wells",
@@ -147,11 +145,11 @@ ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
 
 5.  Analysis for Q1
 
-To check for spatial patterns, I plotted the luminescence (RLU) of each of the 1,536 wells at its physical position using geom_tile(). Luminescence was broadly uniform, with most wells between approximately 450 and 550 RLU. There was no evidence of an edge effect: the median RLU of the 156 outer wells (499.5) was virtually identical to that of the 1,380 inner wells (499.0). Row medians ranged from 490.5 to 507.5 and column medians from 485 to 511.5, a spread small relative to the well-to-well standard deviation (\~30 RLU), so there was no evidence of row, column or gradient effects. Sixteen wells had markedly higher luminescence (RLU \> 650); all 16 contained test compounds and none contained a control compound, and they were scattered across the plate rather than clustered. This is consistent with compound-specific effects rather than a positional artefact, and is tested formally in Q2. I therefore did not apply a plate-position correction.
+To check for spatial patterns, I plotted the luminescence (RLU) of each of the 1,536 wells at its physical position using geom_tile(). Luminescence was broadly uniform, with most wells between approximately 450 and 550 RLU. There was no evidence of an edge effect: the median RLU of the 156 outer wells (499.5) was virtually identical to that of the 1,380 inner wells (499.0). Row medians ranged from 490.5 to 507.5 and column medians from 485 to 511.5, a spread small relative to the well-to-well standard deviation (\~30 RLU), so there was no evidence of row, column or gradient effects. Eighteen wells had luminescence more than 3 standard deviations above the mean of the control wells (\> 577 RLU). 18 contained test compounds and none contained a control compound, and they were scattered across the plate rather than clustered. This is consistent with compound-specific effects rather than a positional artefact, and is tested formally in Q2. I therefore did not apply a plate-position correction.
 
-**Q2: Which compounds are statistically significantly associated with increased neuronal viability after MPP exposure? Ensure that you check your assumptions.**
+## **Q2: Which compounds are statistically significantly associated with increased neuronal viability after MPP exposure? Ensure that you check your assumptions.**
 
-For each pair, compare the 4 test wells against the 4 control wells. That’s 192 tests, so multiple-testing correction was used.
+For each pair, compare the 4 test wells against the 4 control wells. That is 192 tests, so I corrected for multiple testing.
 
 1.  Check assumptions
 
@@ -183,11 +181,11 @@ plate_long |>
   summarise(median_sd = median(sd), .by = type)
 ```
 
-Four wells per compound are too few to check normality for each compound separately, so I subtracted each group's mean from its wells and checked the pooled residuals. The QQ plot followed the theoretical line with only slight deviations in the tails, and the Shapiro-Wilk test gave no evidence against normality (p = 0.26). The boxplot and group SDs showed a similar spread for test and control wells (median SD 21.5 vs 23.6 RLU).
+Four wells per group are too few to check normality for each compound separately, so I subtracted each group's mean from its wells and checked the pooled residuals. The QQ plot followed the theoretical line with only slight deviations in the tails, and the Shapiro-Wilk test gave no evidence against normality (p = 0.26). The boxplot and group SDs showed a similar spread for test and control wells (median SD 21.5 vs 23.6 RLU).Each well is a separate replicate, and Q1 showed no positional pattern in luminescence, so I treated the wells as independent observations.
 
 2.  Run the test
 
-We compared each test compound with its matched control using a Welch t-test, which does not assume equal variances. A Wilcoxon rank-sum test was not used: with four wells per group, its smallest possible two-sided p-value is about 0.029, which cannot stay significant after correcting for 192 tests. Because we ran 192 tests, p-values were adjusted with the Benjamini-Hochberg method, which controls the false discovery rate.
+I compared each test compound with its matched control using a Welch t-test, which does not assume equal variances. A Wilcoxon rank-sum test was not used: with four wells per group, its smallest possible two-sided p-value is about 0.029, which cannot stay significant after correcting for 192 tests. Because I ran 192 tests, p-values were adjusted with the Benjamini-Hochberg method, which controls the false discovery rate.
 
 ```{r}
 # One Welch t-test per pair (test wells vs control wells)
@@ -213,30 +211,6 @@ hits
 Four of the 192 test compounds significantly increased neuronal viability compared with their matched controls after Benjamini-Hochberg correction (adjusted p \< 0.05): cmpd_6281, cmpd_5177, cmpd_7929 and cmpd_5041. Their mean luminescence was 694–710 RLU compared with 488–518 RLU for the controls, an increase of about 190–221 RLU (37–45%). Adjusted p-values ranged from 0.0004 to 0.026.
 
 ```{r}
-
-# Are the 16 bright wells exactly the wells of the 4 hit compounds?
-plate_long |>
-  filter(rlu > 650) |>
-  count(pair_id)     # expect the 4 hit compounds, 4 wells each
-```
-
-These four compounds account for the 16 very bright wells (RLU \> 650) seen on the plate heatmap, with all four replicate wells of each compound elevated, which suggests a consistent effect rather than isolated outlier wells.
-
-Table for summrize
-
-```{r}
-#| label: tbl-hits
-# Show the hits as a table
-hits |>
-  mutate(test_mean = round(test_mean, 1),
-         ctrl_mean = round(ctrl_mean, 1),
-         diff      = round(diff, 1),
-         p_value   = format(p_value, digits = 3),   # keep small numbers readable
-         p_adj     = format(p_adj, digits = 3)) |>
-  knitr::kable(caption = "Compounds that significantly increased viability (BH-adjusted p < 0.05)")
-```
-
-```{r}
 # The 4 wells of each hit compound vs its control
 plate_long |>
   filter(pair_id %in% hits$pair_id) |>
@@ -244,16 +218,16 @@ plate_long |>
   geom_boxplot(outlier.shape = NA) +
   geom_jitter(width = 0.1) +                  # show each well 
   facet_wrap(~ pair_id, nrow = 1) +
-  scale_colour_manual(values = c(test = "#6B8CAE", ctrl = "#D6A5A0")) +
+  scale_colour_manual(values = c(test = "#D6A5A0", ctrl = "#6B8CAE")) +
   labs(title = "Hit compounds vs matched controls",
        x = "Well type", y = "Luminescence (RLU)") +
   theme_minimal() +
   theme(legend.position = "none")
 ```
 
-**Q3: What are the mechanisms of action and targets of the compounds you identify in Q2?**
+## **Q3: What are the mechanisms of action and targets of the compounds you identify in Q2?**
 
-1.  pair_id matches id in compound_dict
+1.  The hit compounds were matched to compound_dict by ID to find their targets.
 
 ```{r}
 hits_info <- hits |>
@@ -268,7 +242,7 @@ hits_info |>
   knitr::kable(caption = "Targets and mechanism of action of the four hit compounds")
 ```
 
-All four identified compounds are agonists, and their targets are genes associated with mitochondrial function. Three of these compounds act on subunits of cytochrome c oxidase (complex IV, the final enzyme in the mitochondrial electron transport chain): cmpd_6281 (COX6A2), cmpd_5177 (COX7A1) and cmpd_7929 (COX7A2) \[1,2,3\]. The fourth, cmpd_5041, acts on FXN, which encodes frataxin, a mitochondrial protein required for the synthesis of iron sulphur clusters, which is essential components of the respiratory chain \[4\]. As MPP causes oxidative stress and mitochondrial damage, these results suggest that enhancing mitochondrial respiratory function may protect dopaminergic neurons from MPP toxicity \[5\]. This is consistent with the role of mitochondrial dysfunction in Parkinson’s disease. However, as this screening utilised neurons from a single healthy donor and was conducted under MPP stress, these candidate drugs still need to be validated in patient-derived neurons.
+All four identified compounds are agonists, and their targets are genes associated with mitochondrial function. Three of these compounds act on subunits of cytochrome c oxidase (complex IV, the final enzyme in the mitochondrial electron transport chain): cmpd_6281 (COX6A2), cmpd_5177 (COX7A1) and cmpd_7929 (COX7A2) \[1,2,3\]. The fourth, cmpd_5041, acts on FXN, which encodes frataxin, a mitochondrial protein required for the synthesis of iron-sulphur clusters, which are essential components of the respiratory chain \[4\]. As MPP causes oxidative stress and mitochondrial damage, these results suggest that enhancing mitochondrial respiratory function may protect neurons from MPP toxicity \[5\]. This is consistent with the role of mitochondrial dysfunction in Parkinson’s disease. However, as this screening utilised neurons from a single healthy donor and was conducted under MPP stress, these candidate drugs still need to be validated in patient-derived neurons.
 
 1.  National Center for Biotechnology Information (US). COX6A2 cytochrome c oxidase subunit 6A2 \[Homo sapiens (human)\]. Gene ID: 1339. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/1339>
 2.  National Center for Biotechnology Information (US). COX7A1 cytochrome c oxidase subunit 7A1 \[Homo sapiens (human)\]. Gene ID: 1346. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/1346>
