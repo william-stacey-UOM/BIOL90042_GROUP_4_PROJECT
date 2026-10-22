@@ -3047,7 +3047,7 @@ rms_results <- tibble(
 ) |>
   filter(Predictor != "(Intercept)") |>
   mutate(
-    Predictor = recode(
+    Predictor = dplyr::recode(
       Predictor,
       "treatmentNew compound" = "New compound vs L-DOPA",
       "exercisey" = "Exercise vs no exercise",
@@ -3284,7 +3284,7 @@ rmssd_results <- tibble(
 ) |>
   filter(Predictor != "(Intercept)") |>
   mutate(
-    Predictor = recode(
+    Predictor = dplyr::recode(
       Predictor,
       "treatmentNew compound" = "New compound vs L-DOPA",
       "exercisey" = "Exercise vs no exercise",
@@ -3475,20 +3475,29 @@ dge$samples
 ```{r}
 # Plot the MDS with colours encoding for PRS above and below 1.175. 
 #1.175 was chosen as a cutoff as it is the midpoint between PRS medians for each status. 
-MDS_PRS <- plotMDS(dge, labels = dge$samples$group, col = case_when(
+plot_MDS <- function() {
+  plotMDS(dge, labels = dge$samples$group, col = case_when(
     dge$samples$PRS >= 1.175 ~ "red",
     .default = "blue"
+  ))
+  
+  legend(
+    "topright",
+    legend = c("PRS ≥ 1.175", "PRS < 1.175"),
+    col = c("red", "blue"),
+    pch = 16,
+    title = "Legend"
   )
-)
+}
 
-legend(
-  "topright",
-  legend = c("PRS ≥ 1.175", "PRS < 1.175"),
-  col = c("red", "blue"),
-  pch = 16,
-  title = "Legend")
+# Display the plot
+plot_MDS()
 
-ggsave("result/MDS_PRS.png",MDS_PRS, width = 8, height = 5, dpi = 300)
+# Save the plot
+dir.create("result", showWarnings = FALSE)
+png("result/MDS_PRS.png", width = 8, height = 5, units = "in", res = 300)
+plot_MDS()
+dev.off()
 
 ```
 
