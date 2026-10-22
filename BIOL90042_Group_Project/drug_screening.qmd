@@ -165,7 +165,7 @@ For each pair, compare the 4 test wells against the 4 control wells. That is 192
 resid_df <- plate_long |>
   mutate(resid = rlu - mean(rlu), .by = c(pair_id, type))
 
-# Normality: QQ plot (points should follow the line)
+# Normality: QQ plot 
 p_qq <- ggplot(resid_df, aes(sample = resid)) +
   geom_qq() +
   geom_qq_line() +
