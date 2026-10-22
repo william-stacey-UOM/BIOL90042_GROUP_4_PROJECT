@@ -3386,31 +3386,35 @@ COX7A2 is a gene that encodes a subunit of mitochondrial complex IV that contrib
 4.  Is there any relationship between the PRS and gait of patients in the clinical trial?
 
 ```{r}
+# Load the PRS data
 load("data/prs.Rda")
 
-donorid_list <- full_join(
-  ca_co_genotypes,
-  gait_data,
-  by = "donorid") 
+# Match each participant's gait RMS score with their PRS
+gait_prs <- participant_summary |>
+  dplyr::select(`Donor ID`, `RMS (°)`) |>
+  dplyr::inner_join(
+    prs_scores |>
+      dplyr::select(donorid, PRS),
+    by = c("Donor ID" = "donorid")
+  ) |>
+  tidyr::drop_na(`RMS (°)`, PRS)  # Keep complete pairs only
 
-donorid_list |> 
-  summarise(n=n())    
+# Check and view the number of matched participants and their data
+nrow(gait_prs)
+gait_prs
 
-donorid_data <- inner_join(
-  ca_co_genotypes,
-  gait_data,
-  by = "donorid"
-)
-donorid_data |> 
-  summarise(n=n()) 
+# Fit a linear regression predicting gait RMS from PRS
+prs_gait_model <- lm(`RMS (°)` ~ PRS, data = gait_prs)
 
-gait_prs <- left_join(
-  donorid_data,
-  prs_scores,
-  by = "donorid")
-gait_prs |> 
-  dplyr::select(donorid,PRS)
+# View the model results
+summary(prs_gait_model)
 ```
+
+There was no statistically significant evidence of a linear relationship between PRS and gait RMS among the 16 clinical trial participants (β = −0.78, p = 0.592).
+
+A one-unit increase in PRS was associated with an estimated 0.78° decrease in gait RMS, but this estimate was uncertain. PRS explained only 2.1% of the variation in RMS scores (R² = 0.021).
+
+These results do not establish that no relationship exists; the small sample limits the ability to detect an association. This model also does not account for age, treatment, or exercise.
 
 5.  In a paragraph, summarise your findings and suggest directions for future research.
 
