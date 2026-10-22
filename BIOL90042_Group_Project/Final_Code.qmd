@@ -4,6 +4,16 @@ format: html
 bibliography: references.bib
 ---
 
+## Population Genetics
+Data Loading 
+```{r}
+library(tidyverse)
+library(car)
+
+# Read in Datasets
+load("data/prs.Rda")
+```
+Question 1: Calculate PRS for each patient and and determine which participant has the highest and lowest score.
 ```{r}
 # loading all the library
 library(tidyverse)
@@ -45,6 +55,7 @@ prs_scores <- genotypes_longer_beta_contribution |>
   group_by(donorid,status) |> 
   summarise(PRS=sum(contribution)) |>
   ungroup()
+prs_scores
 
 # Find Individual with highest and lowest PRS
 prs_scores |> 
@@ -53,26 +64,44 @@ prs_scores |>
   slice_min(PRS, n = 1)
 ```
 
+Each participant was assigned a polygenic risk score as seen in the prs_score table. This was calculated by multiplying the number of affected alleles carried at each locus by that specific alleles predetermined effect weighting (beta) from the GWAS data. these weighted contributions were then summed to yield a final PRS. Donor 216 (case) and and 178 (control) had the most extreme PRS with 2.392 and 0.189 respectively.
+
+Question 2: Plot and describe (with descriptive statistics) the distribution of PRS for both cases and controls.
+
+```{r}
+# Density plot gives a good perspective on the shift that status has with polygenic risk score
+PRS_Distribution <- ggplot(data = prs_scores, aes(x = PRS, colour = status))+
 ```{r}
 # Density plot gives a good perspective on the shift that status has with polygenic risk status
 ggplot(data = prs_scores, aes(x = PRS, colour = status))+
   geom_density() +
-  labs(
-    x = "Polygenic Risk Score",
-    y = "Density",
-    colour = "Status",
-    title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
+  labs (x = "Polygenic Risk Score",
+        y = "Density",
+        colour = "Status",
+        title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
   theme_minimal ()
+PRS_Distribution
+ggsave("result/PRS_Distribution.png",PRS_Distribution, width = 8, height = 5, dpi = 300)
+```
 
+both status density plots appear normally distributed.
+
+```{r}
 # Boxplot gives an easy visualisation for the basic 5 figure summary
-ggplot(data = prs_scores, aes(x = PRS, y = status))+
+PRS_Boxplot <- ggplot(data = prs_scores, aes(x = PRS, y = status))+
   geom_boxplot() +
   labs(
     x = "Polygenic Risk Score",
     y = "Case/Control Status",
     title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
   theme_minimal ()
+PRS_Boxplot
+ggsave("result/PRS_Boxplot.png",PRS_Boxplot, width = 8, height = 5, dpi = 300)
+```
 
+both boxplots appear to show normally distributed data with no obscene skewness.
+
+```{r}
 # Comparison of 5 figure summarry
 prs_scores |> 
   group_by (status) |> 
@@ -83,16 +112,55 @@ prs_scores |>
     sd = sd(PRS),
     minimum = min(PRS),
     maximum = max(PRS))
+```
 
-# Normal Distribution
-ggplot(data = prs_scores, aes(sample = PRS)) +
+The polygenic risk scores for both cases and controls appear to be normally distributed as demonstrated by the density graph and box-plot. Descriptive statistics show high similarity between mean and median for each status, which is a common indicator of normality. Differences in mean and median for the status is showing a potential difference in polyfenic risk score. Despite this normality assumption, further statistical tests should be conducted as per the answers to the following question. 
+
+Question 3: Is there a statistically significant difference in the PRS of cases and controls? Ensure you check all the assumptions of the test you choose.
+
+```{r}
+# Normal Distribution Assumption
+PRS_QQ<-ggplot(data = prs_scores, aes(sample = PRS)) +
   geom_qq() +
   geom_qq_line() +
-  facet_wrap(~status)
+  facet_wrap(~status) +
+  labs(title ='QQ Plot', x = 'Normal Distribution Quantiles', y = 'Standardised ResidualS') +
+  theme_minimal()
+PRS_QQ
+ggsave("result/PRS_PRS_QQ.png",PRS_QQ, width = 8, height = 5, dpi = 300)
+```
 
-# Test Statistic
+QQ Plot shows consistent fitting of the data points to the line, indicating that there is limited evidence to suggest the data are not normally distributed.
+
+```{r}
+# Equal Variance Assumption (Graphical Test)
+linear_model <- lm(PRS ~ status, data = prs_scores)
+sresidual<- rstandard(linear_model)
+PRS_Variance_Plot <- ggplot(linear_model,aes (x=.fitted, y =sresidual)) +
+  geom_point()+
+  geom_hline(yintercept = 0) +
+  labs(title = 'Residual Vs Fitted Values Plot', x = 'Fitted Value', y = 'Standardised Residual') +
+  theme_minimal ()
+PRS_Variance_Plot
+ggsave("result/PRS_Variance_Plot.png",PRS_Variance_Plot, width = 8, height = 5, dpi = 300)
+```
+
+Residual Vs Fitted Plot shows quite equal variance for both statuses. This is implying equal variane is satisfied but a formal test can still be considered.
+
+```{r}
+# Equal Variance Assumption (Statistical Test)
+leveneTest(PRS ~ status, data = prs_scores)
+```
+
+The p-value of 0.458 suggests there is no strong evidence to show that the data does not satisfy the assumption of equal variance.
+
+The independence assumption can only be determined via the data collection method. However given the basis of the study design, we can assume that the recording of one individuals genetic alleles, had no effect on another individuals and so that the independence assumption is satisfied.
+
+```{r}
 t.test(PRS ~ status, data = prs_scores, var.equal = TRUE)
 ```
+A low p-value of 5.117e-07 suggests that there is a statistical difference for the polygenic risk scores between cases and control patients with a 95% confidence interval suggesting that the true population difference for prs between case and control patients is between 0.1358 and 0.3047.
+
 
 ## RNA Sequencing
 
@@ -3327,8 +3395,90 @@ After observing the significant affects of all three variables on the outcome of
 #### **Bring it all together questions**
 
 1.  Using their unique donor IDs, how many patients appear across all four arms of the study?
+```{r}
+library(tidyverse)
+library(car)
+
+# Read in Datasets
+load("data/prs.Rda")
+load("data/gait.Rda")
+load("data/rnaseq.Rda")
+```
+
+Question 1: Using their unique donor IDs, how many patients appear across all four arms of the study?
+
+```{r}
+#Merge all Donor ID's into one list. Using full_join ensures duplicates aren't counted and that all unique Donor IDs are accounted for.
+donorid_list <- full_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid"
+  ) |> 
+  full_join(
+    dge$samples,
+    by = "donorid")
+donorid_list
+
+# Drug Screening data does not contain any Donor ID's so were excluded
+donorid_list |> 
+  summarise(n=n())                  
+```
+
+In total all data sets cover 300 partipants.
+
+```{r}
+#Merge all Donor ID's that appear in all 3 studies. Using inner_join ensures that only unique Donor IDs that are present in all 3 datasets are considered.
+donorid_data <- inner_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid"
+) |> 
+  inner_join(
+    dge$samples,
+    by = "donorid"
+  )
+
+donorid_data
+donorid_data |> 
+  summarise(n=n())    
+```
+
+There are 8 participants who participated all in 3 arms of the study.
 
 2.  Do any variables other than gene expression distinguish the RNA-seq cases from controls? (Hint: try colouring points on your MDS plot by other information you have about the donors, from the other datasets)
+
+```{r}
+# Combine PRS with the differential gene expression for subsequent analysis
+dge$samples <- dge$samples |> 
+  left_join (prs_scores,
+             by = "donorid")
+dge$samples
+```
+
+```{r}
+# Plot the MDS with colours encoding for PRS above and below 1.175. 
+#1.175 was chosen as a cutoff as it is the midpoint between PRS medians for each status. 
+MDS_PRS <- plotMDS(dge, labels = dge$samples$group, col = case_when(
+    dge$samples$PRS >= 1.175 ~ "red",
+    .default = "blue"
+  )
+)
+
+legend(
+  "topright",
+  legend = c("PRS ≥ 1.175", "PRS < 1.175"),
+  col = c("red", "blue"),
+  pch = 16,
+  title = "Legend")
+
+ggsave("result/MDS_PRS.png",MDS_PRS, width = 8, height = 5, dpi = 300)
+
+```
+The MDS graph can also be enhanced by using colours to represent each paricipants PRS. The PRS value of 1.175 was chosen as the cut-off value, because it was found to be the midpoint between the PRS medians for each disease status. As such, it provides a reasonable estimate for the limit whereby a polygenic risk score is more or less likely to be associated with Parkinsons disease.
+
+As shown in the MDS plot, individuals with higher polygenic risk scores (PRS) appear to cluster together, suggesting that they have relatively similar gene expression profiles. A similar pattern is observed among individuals with lower PRS. This clear separation may reflect differences in the genetic variants possessed by participants, with higher PRS patients being more likely to have similar pathogenic alleles that weight heavily towards their large PRS. Consequently, individuals with similar genetic make-ups are more likely to have similar gene expression levels, thus creating the separation. Importantly, there is no causal evidence to show this and it is merely a hypothesis.
+
+Additionally, the original MDS graph is able to separate some Parsons disease patients on gene expression alone, showing the PRS is not the only responsible variable for causing disease. The likely explanation for this is that there a number of different mechanistic factors that drive Parkinson's disease suggesting that their may be different mechanistic sub types of Parkinson's disease that show different genetic risk profiles and gene expression levels.
 
 3.  Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
 
@@ -3417,5 +3567,7 @@ A one-unit increase in PRS was associated with an estimated 0.78° decrease in g
 These results do not establish that no relationship exists; the small sample limits the ability to detect an association. This model also does not account for age, treatment, or exercise.
 
 5.  In a paragraph, summarise your findings and suggest directions for future research.
+
+Collectively our analysis has identified a number of different potential contributors to Parkinson's disease including predetermiend geneitc succeptibility, altered gene expression levels and mitochondrial dysfunction. Of note, PD patients exhibited significantly higher polygenic risk scores than controls, while RNA sequencing revealled altered gene expression with 23 identified differentitally expressed genes that were associated with autophagy, dopamine metabolism and mitochondrial functioning. Drug screening was able to identify four compounds that that significantly improved neuronalviability following MPP+ exposure, including compounds targetting COX7A1 and FXN which were downregulated in PD-derived neurons. Clinical analysis further suggested that new treatment and exercise may improve gait stability, although a small sample size limits confidence in these findings. Given the large variability in potential disease mechanisms, future research could further investigate specific physiological pathways involved in Parkinson's disease and validate these mechanisms in larger cohorts. This research could then hopefully be used to enhance drug development and the drug screening conducted in this analysis.
 
 RNA sequencing identified 23 differentially expressed genes between PD-derived and control-derived neurons, comprising 14 upregulated and 9 downregulated genes. The upregulated genes were associated with the autophagy ontology group, while downregulated genes were associated with dopamine-related processes and oxidative phosphorylation. Heatmap clustering showed that results partly reflected disease status, as PD samples resembled controls. Future research should increase sample size, investigate donor and batch effects, and validate expression changes in an independent donor cohort.
