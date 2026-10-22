@@ -167,6 +167,18 @@ This section analyse the RNA-seq data using these dataset:
 #### **Step 1: Loads our data**
 
 ```{r}
+# loading all the library
+library(tidyverse)
+library(edgeR)
+library(limma)
+library(dplyr)
+library(ggplot2)
+library(RNAseq123)
+library(pheatmap)
+library(ggrepel)
+```
+
+```{r}
 #assign the data to a variable
 gene_info <- load("data/rnaseq_gene_info.Rda") 
 load("data/rnaseq.Rda") # This is the dge list that contains all of our informations
@@ -3411,28 +3423,39 @@ load("data/rnaseq.Rda")
 ```
 
 ```{r}
-{r} #Merge all Donor ID's into one list. Using full_join ensures duplicates aren't counted and that all unique Donor IDs are accounted for. 
-donorid_list <- full_join( 
-  ca_co_genotypes, 
-  gait_data, 
-  by = "donorid" ) |> full_join( 
-    dge$samples, 
-    by = "donorid") 
+#Merge all Donor ID's into one list. Using full_join ensures duplicates aren't counted and that all unique Donor IDs are accounted for.
+donorid_list <- full_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid"
+) |>
+  full_join(
+    dge$samples,
+    by = "donorid")
 donorid_list
+
+# Drug Screening data does not contain any Donor ID's so were excluded
+donorid_list |>
+  summarise(n=n()) 
 ```
-
-Drug Screening data does not contain any Donor ID's so were excluded
-
-```{r}
-donorid_list |> summarise(n=n())
-```
-
-```         
 
 In total all data sets cover 300 partipants.
 
-```f3175f2a-e8a0-4436-be12-b33925b6d220
-31b8e172-b470-440e-83d8-e6b185028602:dAB5AHAAZQA6AFoAZwBBAHoAQQBEAEUAQQBOAHcAQQAxAEEARwBZAEEATQBnAEIAaABBAEMAMABBAFoAUQBBADQAQQBHAEUAQQBNAEEAQQB0AEEARABRAEEATgBBAEEAegBBAEQAWQBBAEwAUQBCAGkAQQBHAFUAQQBNAFEAQQB5AEEAQwAwAEEAWQBnAEEAegBBAEQATQBBAE8AUQBBAHkAQQBEAFUAQQBZAGcAQQAyAEEARwBRAEEATQBnAEEAeQBBAEQAQQBBAAoAcABvAHMAaQB0AGkAbwBuADoATQBRAEEAeABBAEQATQBBAE0AZwBBADIAQQBEAE0AQQAKAHAAcgBlAGYAaQB4ADoACgBzAG8AdQByAGMAZQA6AFkAQQBCAGcAQQBHAEEAQQBlAHcAQgB5AEEASAAwAEEAQwBnAEEAagBBAEUAMABBAFoAUQBCAHkAQQBHAGMAQQBaAFEAQQBnAEEARwBFAEEAYgBBAEIAcwBBAEMAQQBBAFIAQQBCAHYAQQBHADQAQQBiAHcAQgB5AEEAQwBBAEEAUwBRAEIARQBBAEMAYwBBAGMAdwBBAGcAQQBIAFEAQQBhAEEAQgBoAEEASABRAEEASQBBAEIAaABBAEgAQQBBAGMAQQBCAGwAQQBHAEUAQQBjAGcAQQBnAEEARwBrAEEAYgBnAEEAZwBBAEcARQBBAGIAQQBCAHMAQQBDAEEAQQBNAHcAQQBnAEEASABNAEEAZABBAEIAMQBBAEcAUQBBAGEAUQBCAGwAQQBIAE0AQQBMAGcAQQBnAEEARgBVAEEAYwB3AEIAcABBAEcANABBAFoAdwBBAGcAQQBHAGsAQQBiAGcAQgB1AEEARwBVAEEAYwBnAEIAZgBBAEcAbwBBAGIAdwBCAHAAQQBHADQAQQBJAEEAQgBsAEEARwA0AEEAYwB3AEIAMQBBAEgASQBBAFoAUQBCAHoAQQBDAEEAQQBkAEEAQgBvAEEARwBFAEEAZABBAEEAZwBBAEcAOABBAGIAZwBCAHMAQQBIAGsAQQBJAEEAQgAxAEEARwA0AEEAYQBRAEIAeABBAEgAVQBBAFoAUQBBAGcAQQBFAFEAQQBiAHcAQgB1AEEARwA4AEEAYwBnAEEAZwBBAEUAawBBAFIAQQBCAHoAQQBDAEEAQQBkAEEAQgBvAEEARwBFAEEAZABBAEEAZwBBAEcARQBBAGMAZwBCAGwAQQBDAEEAQQBjAEEAQgB5AEEARwBVAEEAYwB3AEIAbABBAEcANABBAGQAQQBBAGcAQQBHAGsAQQBiAGcAQQBnAEEARwBFAEEAYgBBAEIAcwBBAEMAQQBBAE0AdwBBAGcAQQBHAFEAQQBZAFEAQgAwAEEARwBFAEEAYwB3AEIAbABBAEgAUQBBAGMAdwBBAGcAQQBHAEUAQQBjAGcAQgBsAEEAQwBBAEEAWQB3AEIAdgBBAEcANABBAGMAdwBCAHAAQQBHAFEAQQBaAFEAQgB5AEEARwBVAEEAWgBBAEEAdQBBAEEAbwBBAFoAQQBCAHYAQQBHADQAQQBiAHcAQgB5AEEARwBrAEEAWgBBAEIAZgBBAEcAUQBBAFkAUQBCADAAQQBHAEUAQQBJAEEAQQA4AEEAQwAwAEEASQBBAEIAcABBAEcANABBAGIAZwBCAGwAQQBIAEkAQQBYAHcAQgBxAEEARwA4AEEAYQBRAEIAdQBBAEMAZwBBAEMAZwBBAGcAQQBDAEEAQQBZAHcAQgBoAEEARgA4AEEAWQB3AEIAdgBBAEYAOABBAFoAdwBCAGwAQQBHADQAQQBiAHcAQgAwAEEASABrAEEAYwBBAEIAbABBAEgATQBBAEwAQQBBAEsAQQBDAEEAQQBJAEEAQgBuAEEARwBFAEEAYQBRAEIAMABBAEYAOABBAFoAQQBCAGgAQQBIAFEAQQBZAFEAQQBzAEEAQQBvAEEASQBBAEEAZwBBAEcASQBBAGUAUQBBAGcAQQBEADAAQQBJAEEAQQBpAEEARwBRAEEAYgB3AEIAdQBBAEcAOABBAGMAZwBCAHAAQQBHAFEAQQBJAGcAQQBLAEEAQwBrAEEASQBBAEIAOABBAEQANABBAEkAQQBBAEsAQQBDAEEAQQBJAEEAQgBwAEEARwA0AEEAYgBnAEIAbABBAEgASQBBAFgAdwBCAHEAQQBHADgAQQBhAFEAQgB1AEEAQwBnAEEAQwBnAEEAZwBBAEMAQQBBAEkAQQBBAGcAQQBHAFEAQQBaAHcAQgBsAEEAQwBRAEEAYwB3AEIAaABBAEcAMABBAGMAQQBCAHMAQQBHAFUAQQBjAHcAQQBzAEEAQQBvAEEASQBBAEEAZwBBAEMAQQBBAEkAQQBCAGkAQQBIAGsAQQBJAEEAQQA5AEEAQwBBAEEASQBnAEIAawBBAEcAOABBAGIAZwBCAHYAQQBIAEkAQQBhAFEAQgBrAEEAQwBJAEEAQwBnAEEAZwBBAEMAQQBBAEsAUQBBAEsAQQBBAG8AQQBaAEEAQgB2AEEARwA0AEEAYgB3AEIAeQBBAEcAawBBAFoAQQBCAGYAQQBHAFEAQQBZAFEAQgAwAEEARwBFAEEAQwBnAEIAawBBAEcAOABBAGIAZwBCAHYAQQBIAEkAQQBhAFEAQgBrAEEARgA4AEEAWgBBAEIAaABBAEgAUQBBAFkAUQBBAGcAQQBIAHcAQQBQAGcAQQBnAEEAQQBvAEEASQBBAEEAZwBBAEgATQBBAGQAUQBCAHQAQQBHADAAQQBZAFEAQgB5AEEARwBrAEEAYwB3AEIAbABBAEMAZwBBAGIAZwBBADkAQQBHADQAQQBLAEEAQQBwAEEAQwBrAEEASQBBAEEAZwBBAEMAQQBBAEkAQQBBAEsAQQBHAEEAQQBZAEEAQgBnAEEAQQA9AD0ACgBzAHUAZgBmAGkAeAA6AA==:31b8e172-b470-440e-83d8-e6b185028602
+```{r}
+#Merge all Donor ID's that appear in all 3 studies. Using inner_join ensures that only unique Donor IDs that are present in all 3 datasets are considered.
+donorid_data <- inner_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid"
+) |>
+  inner_join(
+    dge$samples,
+    by = "donorid"
+  )
+
+donorid_data
+donorid_data |>
+  summarise(n=n())    
 ```
 
 There are 8 participants who participated all in 3 arms of the study.
@@ -3563,12 +3586,10 @@ There was no statistically significant evidence of a linear relationship between
 
 A one-unit increase in PRS was associated with an estimated 0.78° decrease in gait RMS, but this estimate was uncertain. PRS explained only 2.1% of the variation in RMS scores (R² = 0.021).
 
-These results do not establish that no relationship exists; the small sample limits the ability to detect an association. This model also does not account for age, treatment, or exercise.
+These results do not establish that no relationship exists; the small sample limits the ability to detect an association. Also, this model also does not account for age, treatment, or exercise.
 
 ### Question 5:
 
 *In a paragraph, summarise your findings and suggest directions for future research.*
 
-Collectively our analysis has identified a number of different potential contributors to Parkinson's disease including predetermiend geneitc succeptibility, altered gene expression levels and mitochondrial dysfunction. Of note, PD patients exhibited significantly higher polygenic risk scores than controls, while RNA sequencing revealled altered gene expression with 23 identified differentitally expressed genes that were associated with autophagy, dopamine metabolism and mitochondrial functioning. Drug screening was able to identify four compounds that that significantly improved neuronalviability following MPP+ exposure, including compounds targetting COX7A1 and FXN which were downregulated in PD-derived neurons. Clinical analysis further suggested that new treatment and exercise may improve gait stability, although a small sample size limits confidence in these findings. Given the large variability in potential disease mechanisms, future research could further investigate specific physiological pathways involved in Parkinson's disease and validate these mechanisms in larger cohorts. This research could then hopefully be used to enhance drug development and the drug screening conducted in this analysis.
-
-RNA sequencing identified 23 differentially expressed genes between PD-derived and control-derived neurons, comprising 14 upregulated and 9 downregulated genes. The upregulated genes were associated with the autophagy ontology group, while downregulated genes were associated with dopamine-related processes and oxidative phosphorylation. Heatmap clustering showed that results partly reflected disease status, as PD samples resembled controls. Future research should increase sample size, investigate donor and batch effects, and validate expression changes in an independent donor cohort.
+Together, these analyses suggest that Parkinson’s disease (PD) involves genetic susceptibility, altered gene expression and mitochondrial dysfunction. PD cases had significantly higher polygenic risk scores (PRS) than controls, while RNA sequencing identified 23 differentially expressed genes associated with autophagy, dopamine-related processes and oxidative phosphorylation. Gene-expression clustering only partly distinguished cases from controls and appeared to vary with PRS, suggesting biological heterogeneity that warrants further investigation. Drug screening identified four compounds that significantly improved neuronal viability following MPP+ exposure. Their targets were associated with mitochondrial function, and two targets, COX7A1 and FXN, were also downregulated in PD-derived neurons, supporting further investigation of mitochondrial pathways as therapeutic targets. Clinical analyses suggested that the new compound and exercise were associated with improved gait balance and smoothness, while increasing age was associated with poorer gait. However, no statistically significant linear association between PRS and gait RMS was detected among the 16 trial participants, and the small sample limits the strength of these conclusions. Future research should validate the genetic and gene-expression findings in larger, independent cohorts, investigate donor and batch effects, and test the candidate compounds across multiple patient-derived neuronal lines. Functional studies could establish whether these compounds improve mitochondrial activity and whether this explains their effects on neuronal viability. Larger longitudinal clinical trials should assess the durability of treatment and exercise benefits, examine how these vary with age and disease progression, and further investigate whether genetic risk is associated with gait outcomes.
