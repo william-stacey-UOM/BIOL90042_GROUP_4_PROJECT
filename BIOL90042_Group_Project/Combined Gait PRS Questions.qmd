@@ -1,0 +1,44 @@
+---
+title: "Linking Data Sets"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(car)
+
+# Read in Datasets
+load("prs.Rda")
+load("gait.Rda")
+```
+
+```{r}
+donorid_list <- full_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid") 
+
+donorid_list |> 
+  summarise(n=n())                  
+```
+
+```{r}
+donorid_data <- inner_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid"
+)
+donorid_data |> 
+  summarise(n=n())    
+
+```
+
+```{r}
+gait_prs <- left_join(
+  donorid_data,
+  prs_scores,
+  by = "donorid")
+gait_prs |> 
+  select(donorid,PRS)
+```
