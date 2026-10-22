@@ -2584,16 +2584,90 @@ However, a sensitivity check still needs to be applied to assess the influence o
 #### Sensitivity Check RMSSD:
 
 ```{r}
+# Refit without d204
+rmssd_without_d204 <- update(
+  model_rmssd,
+  data = filter(rmssd_model_data, donorid != "d204")
+)
 
+# Refit without d216
+rmssd_without_d216 <- update(
+  model_rmssd,
+  data = filter(rmssd_model_data, donorid != "d216")
+)
+
+# Extract the adjusted treatment effect from each model
+extract_treatment <- function(model, analysis) {
+  term <- "treatmentNew compound"
+  coefficients <- summary(model)$coefficients
+  ci <- confint(model, parm = term)
+  
+  tibble(
+    Analysis = analysis,
+    Estimate = coefficients[term, "Estimate"],
+    CI_lower = ci[1, 1],
+    CI_upper = ci[1, 2],
+    p_value = coefficients[term, "Pr(>|t|)"]
+  )
+}
+
+# Compare the full model with each participant excluded separately
+rmssd_sensitivity_results <- bind_rows(
+  extract_treatment(model_rmssd, "All participants"),
+  extract_treatment(rmssd_without_d204, "Without d204"),
+  extract_treatment(rmssd_without_d216, "Without d216")
+) |>
+  mutate(
+    across(c(Estimate, CI_lower, CI_upper), ~ round(.x, 2)),
+    p_value = if_else(
+      p_value < 0.001,
+      "<0.001",
+      sprintf("%.3f", p_value)
+    )
+  )
+
+# Display the results
+print(rmssd_sensitivity_results, n = Inf, width = Inf)
 ```
+
+Sensitivity analyses showed that excluding d204 or d216 individually did not materially change the adjusted treatment finding. The new compound remained associated with lower RMSSD than L-DOPA after accounting for exercise and age. This supports the robustness of the finding to either participant’s individual influence; all participants were retained in the main analysis.
 
 #### Interaction Model: 
 
 To further assess the influence of age and exercise on the gait data between the treatment groups for RMSSD, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
 
 ```{r}
+# Add all pairwise interactions to the adjusted RMSSD model
+model_rmssd_interaction <- update(
+  model_rmssd,
+  . ~ (treatment + exercise + age)^2
+)
 
+# Test whether the interactions collectively improve model fit
+anova(model_rmssd, model_rmssd_interaction)
+
+# View individual coefficients and interaction p-values
+summary(model_rmssd_interaction)
+
+# Obtain 95% confidence intervals
+confint(model_rmssd_interaction)
+
+# Check the interaction model's residual diagnostics
+local({
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(mfrow = c(2, 2))
+  
+  plot(
+    model_rmssd_interaction,
+    which = c(1, 2, 3, 5),
+    ask = FALSE
+  )
+})
 ```
+
+Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMSSD model compared with the additive model (*F*(3, 9) = 0.281, *p* = 0.838). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained for the main analysis. Given the small sample size and wide confidence intervals, these findings indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
 
 #### Answer to Question 3: 
 
@@ -2615,4 +2689,8 @@ After observing the significant affects of all three variables on the outcome of
 
 - Make sure code runs when environment is cleaned
 
+- Make sure all graphs are pngs
+
 - Put all png outputs into a results folder
+
+- Produce README file
