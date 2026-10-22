@@ -625,7 +625,2683 @@ All four identified compounds are agonists, and their targets are genes associat
 4.  National Center for Biotechnology Information (US). FXN frataxin \[Homo sapiens (human)\]. Gene ID: 2395. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/2395>
 5.  Kalivendi SV, Kotamraju S, Cunningham S, Shang T, Hillard CJ, Kalyanaraman B. 1-Methyl-4-phenylpyridinium (MPP+)-induced apoptosis and mitochondrial oxidant generation: Role of transferrin-receptor-dependent iron and hydrogen peroxide. Biochem J \[Internet\]. 2003 Apr 1 \[cited 2026 Oct 21\];371(Pt 1):151–64. Available from: <https://pubmed.ncbi.nlm.nih.gov/12523938/>
 
-**Bring it all together questions** 4. Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
+## **Clinical Trial**
+
+#### Load the Gait data
+
+```{r}
+library(tidyverse)
+load("data/gait.Rda")
+
+# Assign participant labels and define categorical variables
+gait_data <- gait_data |>
+  mutate(
+    participant_label = paste("Participant", row_number()),
+    treatment = factor(treatment),
+    exercise = factor(exercise, levels = c("n", "y"))
+  )
+
+# Identify and order the measurement columns
+measurement_cols <- grep(
+  "^[0-9]+_secs$",
+  names(gait_data),
+  value = TRUE
+)
+
+measurement_cols <- measurement_cols[
+  order(as.numeric(sub("_secs$", "", measurement_cols)))
+]
+
+# Create long-format data once for all subsequent analyses
+gait_long <- gait_data |>
+  pivot_longer(
+    cols = all_of(measurement_cols),
+    names_to = "time",
+    values_to = "gait_value"
+  ) |>
+  mutate(
+    second = as.numeric(sub("_secs$", "", time))
+  )
+```
+
+### Question 1:
+
+*Plot each participants' gait data and describe it using descriptive statistics. Which of these descriptive statistics do you think is most useful for capturing the overall gait smoothness and balance of a participant?*
+
+#### Check for Missing Values: 
+
+```{r}
+sum(is.na(gait_data))
+```
+
+No missing values, therefore continue with analysis
+
+#### Counts Per Group:
+
+Next a count applied to participants in each group will check to confirm allocation has been appropriately achieved.
+
+```{r}
+
+group_summary <- gait_data |>
+  count(
+    treatment,
+    exercise,
+    name = "Participants",
+    .drop = FALSE
+  ) |>
+  mutate(
+    Percent = round(
+      100 * Participants / sum(Participants),
+      1
+    ),
+    exercise = recode(
+      as.character(exercise),
+      "n" = "No exercise",
+      "y" = "Exercise"
+    )
+  ) |>
+  rename(
+    Treatment = treatment,
+    Exercise = exercise
+  )
+
+print(group_summary, n = Inf, width = Inf)
+```
+
+There is an equal split across groups, so analysis can continue.
+
+#### Participant Characteristics and Summary Statistics:
+
+The following table combines each participant's characteristics (ID, treatment, exercise, and age) with summaries of their gait readings.
+
+#### Summary Statistics:
+
+I will now provide the participant level summary statistics that help provide information about the gait data. This includes;
+
+- Number of non-missing observations
+
+- Average angle: indicating any consistent directional lean
+
+- Median angle: further information about directional lean, as less susceptible to extreme values
+
+- Standard Deviation: variability around the participants mean
+
+- Inter Quartile Range: spread of the middle 50% of readings
+
+- Root Square Mean: overall deviation from upright, incorporating both variability and consistent lean
+
+```{r}
+# Calculate participant statistics
+participant_stats <- gait_long |>
+  group_by(donorid, treatment, exercise, age) |>
+  summarise(
+    n_observations = sum(!is.na(gait_value)),
+    n_missing = sum(is.na(gait_value)),
+    mean_gait = mean(gait_value, na.rm = TRUE),
+    median_gait = median(gait_value, na.rm = TRUE),
+    sd_gait = sd(gait_value, na.rm = TRUE),
+    q1_gait = quantile(gait_value, 0.25, na.rm = TRUE),
+    q3_gait = quantile(gait_value, 0.75, na.rm = TRUE),
+    iqr_gait = q3_gait - q1_gait,
+    rms_gait = sqrt(mean(gait_value^2, na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+# Prepare participant characteristics for display
+# Retain the original row order used to assign participant labels
+participant_characteristics <- gait_data |>
+  transmute(
+    Participant = participant_label,
+    `Donor ID` = donorid,
+    Treatment = treatment,
+    Exercise = recode(
+      as.character(exercise),
+      "n" = "No",
+      "y" = "Yes"
+    ),
+    `Age (years)` = round(age, 1)
+  )
+
+# Combine characteristics and statistics into one presentation table
+participant_summary <- participant_characteristics |>
+  left_join(
+    participant_stats |>
+      dplyr::select(
+        donorid,
+        n_observations,
+        n_missing,
+        mean_gait,
+        median_gait,
+        sd_gait,
+        iqr_gait,
+        rms_gait
+      ),
+    by = c("Donor ID" = "donorid")
+  ) |>
+  mutate(
+    across(
+      c(mean_gait, median_gait, sd_gait, iqr_gait, rms_gait),
+      ~ round(.x, 2)
+    )
+  ) |>
+  rename(
+    Readings = n_observations,
+    Missing = n_missing,
+    `Mean (°)` = mean_gait,
+    `Median (°)` = median_gait,
+    `SD (°)` = sd_gait,
+    `IQR (°)` = iqr_gait,
+    `RMS (°)` = rms_gait
+  )
+# Optional
+# View(participant_summary)
+```
+
+Now that the summary statistics have been provided, I want to plot each participants data to visually inspect them. I first want to look at how the the data varies across the 700s. Therefore, I will create a histogram showing the frequency for each gait angle observed across the time-frame for each individual.
+
+#### Histograms:
+
+```{r}
+# Reuse measurement_cols from the data-preparation chunk
+participants <- unique(na.omit(gait_data$donorid))
+
+# Collect valid measurements for each participant
+participant_values <- lapply(participants, function(id) {
+  values <- as.numeric(unlist(
+    gait_data[
+      gait_data$donorid %in% id,
+      measurement_cols,
+      drop = FALSE
+    ],
+    use.names = FALSE
+  ))
+  
+  values[is.finite(values)]
+})
+
+# Check that every participant has usable measurements
+if (length(participants) == 0 ||
+    any(lengths(participant_values) == 0)) {
+  stop("No participants found, or a participant has no valid measurements.")
+}
+
+# Define shared bins
+all_values <- unlist(participant_values, use.names = FALSE)
+
+bin_width <- 2  # Use 1 for finer detail or 5 for fewer bars
+
+lower_bound <- floor(min(all_values) / bin_width) * bin_width
+upper_bound <- ceiling(max(all_values) / bin_width) * bin_width
+
+# Ensure a non-zero range if all measurements are identical
+if (lower_bound == upper_bound) {
+  lower_bound <- lower_bound - bin_width
+  upper_bound <- upper_bound + bin_width
+}
+
+shared_breaks <- seq(
+  lower_bound,
+  upper_bound,
+  by = bin_width
+)
+
+# Calculate histograms using identical bins
+histograms <- lapply(participant_values, function(values) {
+  hist(
+    values,
+    breaks = shared_breaks,
+    plot = FALSE
+  )
+})
+
+# Shared y-axis limit
+max_count <- max(vapply(
+  histograms,
+  function(h) max(h$counts),
+  numeric(1)
+))
+
+# Save the histogram grid as an image
+image_file <- "participant_histograms.png"
+
+local({
+  png(
+    filename = image_file,
+    width = 12,
+    height = 10,
+    units = "in",
+    res = 300,
+    bg = "white"
+  )
+  
+  # Close the image device when this block finishes
+  on.exit(dev.off())
+  
+  n_cols <- ceiling(sqrt(length(participants)))
+  n_rows <- ceiling(length(participants) / n_cols)
+  
+  par(
+    mfrow = c(n_rows, n_cols),
+    mar = c(3, 3, 2, 1),
+    oma = c(0, 0, 3, 0),
+    mgp = c(1.8, 0.5, 0)
+  )
+  
+  # Draw one histogram per participant
+  for (i in seq_along(participants)) {
+    plot(
+      histograms[[i]],
+      freq = TRUE,
+      xlim = range(shared_breaks),
+      ylim = c(0, max_count * 1.05),
+      xaxs = "i",
+      xaxt = "n",
+      main = as.character(participants[i]),
+      xlab = "Gait angle (degrees)",
+      ylab = "Frequency",
+      col = "steelblue",
+      border = "white"
+    )
+    
+    axis(
+      1,
+      at = pretty(range(shared_breaks), n = 5),
+      cex.axis = 0.65
+    )
+  }
+  
+  # Overall title above the grid
+  mtext(
+    "Distribution of Gait Angles by Participant",
+    side = 3,
+    outer = TRUE,
+    line = 1,
+    cex = 1.3,
+    font = 2
+  )
+})
+
+# Display the saved image in Quarto
+knitr::include_graphics(image_file)
+```
+
+#### Interpretation of Multiple Histograms:
+
+This works well to be able to see the frequency at which individuals are being recorded "off-axis". Histograms that are skinny and tall show little variation, and consistent alignment to 0º's (a 0º measurement indicates the participant is standing perfectly upright), whilst spread out histograms represent participants with large variations from upright, representing individuals with low stability/smoothness. This provides a basic comparison between individuals, but is relatively hard to interpret differences.
+
+#### Visual Representations of Vertical Axis Whilst Walking:
+
+These visualisations represent the vertical axis angle of each participant over their total 700 second recording, put on a 180º diagram. This allows for a visual representation of the walking gait, and how often participants were "unbalanced".
+
+#### Visual Representation of Vertical Orientation Using a Stick Figure:
+
+For further clarity, this representation has been made with a stick figure making movements every one second interval. This has purely been included to represent gait axis variation during walking in the most simple of formats. This has been captured as a 30 second sample of a single participant.
+
+Colour has been added to represent "unbalanced" walking.
+
+```{r}
+library(gganimate)
+# Settings
+participant <- "d031"
+preview_seconds <- 30   # Use Inf for the full recording
+playback_fps <- 10      # Use 1 for real-time playback
+red_threshold <- 20
+
+# Find the participant
+participant_row <- which(gait_data$donorid == participant)
+
+if (length(participant_row) != 1) {
+  stop("Expected exactly one row for participant: ", participant)
+}
+
+# Find measurement columns and put them in time order
+measurement_cols <- grep(
+  "^[0-9]+_secs$",
+  names(gait_data),
+  value = TRUE
+)
+
+if (length(measurement_cols) == 0) {
+  stop("No measurement columns found.")
+}
+
+seconds <- as.numeric(sub("_secs$", "", measurement_cols))
+time_order <- order(seconds)
+
+seconds <- seconds[time_order]
+measurement_cols <- measurement_cols[time_order]
+
+# Extract the participant's angles
+angles <- as.numeric(unlist(
+  gait_data[participant_row, measurement_cols, drop = FALSE],
+  use.names = FALSE
+))
+
+# Select the preview period
+keep <- seconds < min(seconds) + preview_seconds
+
+animation_data <- data.frame(
+  second = seconds[keep],
+  angle = angles[keep]
+)
+
+if (nrow(animation_data) == 0) {
+  stop("No measurements selected.")
+}
+
+if (any(diff(animation_data$second) != 1)) {
+  stop("The selected measurement columns are not spaced one second apart.")
+}
+
+# Preserve missing observations in the timeline
+animation_data$angle[
+  !is.finite(animation_data$angle)
+] <- NA_real_
+
+# Prepare angles and frame labels
+animation_data$radians <- animation_data$angle * pi / 180
+animation_data$deviation <- abs(animation_data$angle)
+
+animation_data$angle_label <- ifelse(
+  is.na(animation_data$angle),
+  "Missing measurement",
+  sprintf("Angle: %+.1f°", animation_data$angle)
+)
+
+animation_data$frame <- factor(
+  animation_data$second,
+  levels = animation_data$second
+)
+
+# Semicircular guide
+arc <- seq(-pi / 2, pi / 2, length.out = 200)
+
+arc_data <- data.frame(
+  x = sin(arc),
+  y = cos(arc)
+)
+
+# Angle guides
+ticks <- seq(-90, 90, by = 45)
+
+guide_data <- data.frame(
+  x = sin(ticks * pi / 180),
+  y = cos(ticks * pi / 180),
+  label = paste0(ticks, "°")
+)
+
+# Upright stick figure, pivoting midway between the feet
+body_template <- data.frame(
+  part = c("torso", "left_arm", "right_arm", "left_leg", "right_leg"),
+  x    = c(0,    0,     0,    0,     0),
+  y    = c(0.38, 0.70,  0.70, 0.38,  0.38),
+  xend = c(0,   -0.24,  0.24, -0.13, 0.13),
+  yend = c(0.82, 0.48,  0.48, 0,     0)
+)
+
+# Repeat body segments for every frame
+body_data <- merge(
+  animation_data,
+  body_template,
+  by = NULL,
+  sort = FALSE
+)
+
+# Rotate the body: positive angles lean right
+body_data <- transform(
+  body_data,
+  rotated_x    = x * cos(radians) + y * sin(radians),
+  rotated_y    = -x * sin(radians) + y * cos(radians),
+  rotated_xend = xend * cos(radians) + yend * sin(radians),
+  rotated_yend = -xend * sin(radians) + yend * cos(radians)
+)
+
+# Rotate the head's centre
+animation_data$head_x <- 0.90 * sin(animation_data$radians)
+animation_data$head_y <- 0.90 * cos(animation_data$radians)
+
+# Build the animation
+orientation_plot <- ggplot() +
+  geom_path(
+    data = arc_data,
+    aes(x = x, y = y),
+    colour = "grey75"
+  ) +
+  geom_segment(
+    data = guide_data,
+    aes(x = 0, y = 0, xend = x, yend = y),
+    colour = "grey80",
+    linetype = "dashed"
+  ) +
+  geom_text(
+    data = guide_data,
+    aes(x = 1.12 * x, y = 1.12 * y, label = label),
+    size = 4
+  ) +
+  # Torso, arms and legs
+  geom_segment(
+    data = body_data,
+    aes(
+      x = rotated_x,
+      y = rotated_y,
+      xend = rotated_xend,
+      yend = rotated_yend,
+      colour = deviation
+    ),
+    linewidth = 2.5,
+    lineend = "round",
+    na.rm = TRUE
+  ) +
+  # Head
+  geom_point(
+    data = animation_data,
+    aes(x = head_x, y = head_y, colour = deviation),
+    shape = 21,
+    fill = "white",
+    size = 12,
+    stroke = 1.8,
+    na.rm = TRUE
+  ) +
+  # Angle readout positioned close to the figure
+  geom_text(
+    data = animation_data,
+    aes(label = angle_label),
+    x = 0,
+    y = -0.25,
+    size = 5
+  ) +
+  scale_colour_gradient(
+    low = "blue",
+    high = "red",
+    limits = c(0, red_threshold),
+    oob = scales::squish,
+    breaks = c(0, 10, 20),
+    labels = c("0°", "10°", "20°+"),
+    name = "Distance from vertical"
+  ) +
+  # Compact plotting area
+  coord_fixed(
+    xlim = c(-1.25, 1.25),
+    ylim = c(-0.40, 1.25)
+  ) +
+  labs(
+    title = paste("Walking orientation:", participant),
+    subtitle = "Recording time: {current_frame} seconds",
+    caption = "Schematic figure tilted by the recorded angle"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  ) +
+  transition_manual(frame)
+
+# Render
+orientation_animation <- animate(
+  orientation_plot,
+  nframes = nrow(animation_data),
+  fps = 1,
+  width = 650,
+  height = 500,
+  renderer = gifski_renderer()
+)
+
+# Save and display in Quarto HTML
+animation_file <- paste0("stick_figure_", participant, ".gif")
+
+anim_save(
+  filename = animation_file,
+  animation = orientation_animation
+)
+
+knitr::include_graphics(animation_file)
+```
+
+#### Visual Animation of Vertical Orientation:
+
+This animation has been simplified into a vertical line. This is to visually help understand the graph that comes after it
+
+```{r}
+# Settings
+participant <- "d031"
+preview_seconds <- 30   # Use Inf for the full recording
+red_threshold <- 20
+
+# Find the participant
+participant_row <- which(gait_data$donorid == participant)
+
+if (length(participant_row) != 1) {
+  stop("Expected exactly one row for participant: ", participant)
+}
+
+# Find measurement columns and order them by time
+measurement_cols <- grep(
+  "^[0-9]+_secs$",
+  names(gait_data),
+  value = TRUE
+)
+
+if (length(measurement_cols) == 0) {
+  stop("No measurement columns found.")
+}
+
+seconds <- as.numeric(sub("_secs$", "", measurement_cols))
+time_order <- order(seconds)
+
+seconds <- seconds[time_order]
+measurement_cols <- measurement_cols[time_order]
+
+# Extract the participant's angles
+angles <- as.numeric(unlist(
+  gait_data[participant_row, measurement_cols, drop = FALSE],
+  use.names = FALSE
+))
+
+# Select the preview period
+keep <- seconds < min(seconds) + preview_seconds
+
+animation_data <- data.frame(
+  second = seconds[keep],
+  angle = angles[keep]
+)
+
+if (nrow(animation_data) == 0) {
+  stop("No measurements selected.")
+}
+
+# One frame per second requires consecutive second columns
+if (any(diff(animation_data$second) != 1)) {
+  stop("The selected measurement columns are not spaced one second apart.")
+}
+
+# Keep missing observations in the timeline, but show no orientation
+animation_data$angle[
+  !is.finite(animation_data$angle)
+] <- NA_real_
+
+# Convert angles to the endpoint of a line of length 1
+animation_data$radians <- animation_data$angle * pi / 180
+animation_data$x_end <- sin(animation_data$radians)
+animation_data$y_end <- cos(animation_data$radians)
+animation_data$deviation <- abs(animation_data$angle)
+
+animation_data$angle_label <- ifelse(
+  is.na(animation_data$angle),
+  "Missing measurement",
+  sprintf("Angle: %+.1f°", animation_data$angle)
+)
+
+# Explicitly preserve chronological frame order
+animation_data$frame <- factor(
+  animation_data$second,
+  levels = animation_data$second
+)
+
+# Static semicircular guide
+arc <- seq(-pi / 2, pi / 2, length.out = 200)
+
+arc_data <- data.frame(
+  x = sin(arc),
+  y = cos(arc)
+)
+
+# Static angle guides
+ticks <- seq(-90, 90, by = 45)
+
+guide_data <- data.frame(
+  x = sin(ticks * pi / 180),
+  y = cos(ticks * pi / 180),
+  label = paste0(ticks, "°")
+)
+
+# Build the animation
+orientation_plot <- ggplot(animation_data) +
+  geom_path(
+    data = arc_data,
+    aes(x = x, y = y),
+    colour = "grey75"
+  ) +
+  geom_segment(
+    data = guide_data,
+    aes(x = 0, y = 0, xend = x, yend = y),
+    colour = "grey80",
+    linetype = "dashed"
+  ) +
+  geom_text(
+    data = guide_data,
+    aes(x = 1.12 * x, y = 1.12 * y, label = label),
+    size = 4
+  ) +
+  geom_segment(
+    aes(
+      x = 0,
+      y = 0,
+      xend = x_end,
+      yend = y_end,
+      colour = deviation
+    ),
+    linewidth = 3,
+    lineend = "round",
+    na.rm = TRUE
+  ) +
+  geom_point(
+    aes(x = x_end, y = y_end, colour = deviation),
+    size = 6,
+    na.rm = TRUE
+  ) +
+  annotate(
+    "point",
+    x = 0,
+    y = 0,
+    size = 3,
+    colour = "black"
+  ) +
+  # Position the angle readout closer to the animation
+  geom_text(
+    aes(label = angle_label),
+    x = 0,
+    y = -0.25,
+    size = 5
+  ) +
+  scale_colour_gradient(
+    low = "blue",
+    high = "red",
+    limits = c(0, red_threshold),
+    oob = scales::squish,
+    breaks = c(0, 10, 20),
+    labels = c("0°", "10°", "20°+"),
+    name = "Distance from vertical"
+  ) +
+  # Reduce unused space below the pivot
+  coord_fixed(
+    xlim = c(-1.25, 1.25),
+    ylim = c(-0.40, 1.25)
+  ) +
+  labs(
+    title = paste("Walking orientation:", participant),
+    subtitle = "Recording time: {current_frame} seconds",
+    caption = "Negative angles shown left; positive angles shown right"
+  ) +
+  theme_void(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5),
+    plot.caption = element_text(hjust = 0.5)
+  ) +
+  transition_manual(frame)
+
+# Render: one recorded second per animation second
+orientation_animation <- animate(
+  orientation_plot,
+  nframes = nrow(animation_data),
+  fps = 1,
+  width = 650,
+  height = 500,
+  renderer = gifski_renderer()
+)
+
+# Save and display in the rendered Quarto HTML
+animation_file <- paste0("orientation_", participant, ".gif")
+
+anim_save(
+  filename = animation_file,
+  animation = orientation_animation
+)
+
+knitr::include_graphics(animation_file)
+```
+
+#### Walking Orientation of All Participants:
+
+This now computes the walking orientation for each participant over their 700s recording into a single graph. It is organised into the two experimental groups (treatment and exercise).
+
+```{r}
+# Change participants ID numbers to 1-16
+gait_data$participant_label <- paste("Participant", seq_len(nrow(gait_data)))
+
+# Find measurement columns and put them in time order
+measurement_cols <- grep(
+  "^[0-9]+_secs$", names(gait_data), value = TRUE
+)
+
+seconds <- as.numeric(sub("_secs$", "", measurement_cols))
+measurement_cols <- measurement_cols[order(seconds)]
+
+if (length(measurement_cols) == 0 || nrow(gait_data) == 0) {
+  stop("No participant rows or seconds columns found.")
+}
+
+# Define the four groups using the labels in your dataset
+treatment <- trimws(as.character(gait_data$treatment))
+exercise <- tolower(trimws(as.character(gait_data$exercise)))
+
+groups <- list(
+  "Control\nNo Exercise" = which(
+    treatment == "L-DOPA control" & exercise == "n"
+  ),
+  "Control\nExercise" = which(
+    treatment == "L-DOPA control" & exercise == "y"
+  ),
+  "New Compound\nNo Exercise" = which(
+    treatment == "New compound" & exercise == "n"
+  ),
+  "New Compoound\nExercise" = which(
+    treatment == "New compound" & exercise == "y"
+  )
+)
+
+# Sort participants within each group by donor ID
+groups <- lapply(groups, function(rows) {
+  rows[order(gait_data$donorid[rows])]
+})
+
+# Check that everyone has been assigned to a group
+if (sum(lengths(groups)) != nrow(gait_data)) {
+  stop("Some treatment or exercise labels do not match the four groups.")
+}
+
+# Shared colour scale: blue at 0°, red at ±15° and beyond
+angle_palette <- colorRampPalette(c("blue", "red"))(256)
+red_threshold <- 20
+
+local({
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  n_rows <- max(lengths(groups))
+  n_cols <- length(groups)
+  
+  par(
+    mfrow = c(n_rows, n_cols),
+    mar = c(2.5, 1, 2, 1),
+    oma = c(3, 0, 5, 0)
+  )
+  
+  # Fill the grid row by row, keeping each group in its own column
+  for (row in seq_len(n_rows)) {
+    for (group in seq_along(groups)) {
+      
+      # Leave a blank panel if this group has fewer participants
+      if (row > length(groups[[group]])) {
+        plot.new()
+        next
+      }
+      
+      i <- groups[[group]][row]
+      
+      angles <- as.numeric(unlist(
+        gait_data[i, measurement_cols, drop = FALSE]
+      ))
+      
+      radians <- angles * pi / 180
+      valid <- is.finite(radians)
+      
+      colour_index <- 1L + floor(
+        pmin(abs(angles[valid]) / red_threshold, 1) * 255
+      )
+      
+      angle_colours <- angle_palette[colour_index]
+      
+      # Create participant panel
+      plot(
+        NA,
+        xlim = c(-1.1, 1.1),
+        ylim = c(-0.01, 1.1),
+        asp = 1,
+        axes = FALSE,
+        xlab = "",
+        ylab = ""
+      )
+      
+      # Semicircular guide
+      arc <- seq(-pi / 2, pi / 2, length.out = 200)
+      lines(sin(arc), cos(arc), col = "grey75")
+      
+      # Angle guides and labels
+      ticks <- seq(-90, 90, by = 45)
+      tick_radians <- ticks * pi / 180
+      
+      segments(
+        0, 0,
+        sin(tick_radians), cos(tick_radians),
+        col = "grey80",
+        lty = 2
+      )
+      
+      text(
+        1.12 * sin(tick_radians),
+        1.12 * cos(tick_radians),
+        labels = paste0(ticks, "°"),
+        cex = 1
+      )
+      
+      # Draw one ray per valid measurement
+      segments(
+        0, 0,
+        sin(radians[valid]),
+        cos(radians[valid]),
+        col = adjustcolor(angle_colours, alpha.f = 0.5),
+        lwd = 0.7
+      )
+      
+      points(0, 0, pch = 16, cex = 0.6)
+      mtext(
+        gait_data$participant_label[i],
+        side = 1,
+        line = 0.5,
+        cex = 0.8,
+        font = 2
+      )
+    }
+  }
+  
+  # Column headings
+  for (group in seq_along(groups)) {
+    mtext(
+      names(groups)[group],
+      outer = TRUE,
+      side = 3,
+      at = (group - 0.5) / n_cols,
+      line = -1,
+      font = 2,
+      cex = 1.1
+    )
+  }
+  
+  mtext(
+    "Walking orientation by participant",
+    outer = TRUE, side = 3, line = 3.5,
+    font = 2,
+    cex = 1.4
+  )
+  
+  mtext(
+    "Distance from vertical: blue = 0° | red = 20° and above",
+    outer = TRUE, side = 1, line = 1
+  )
+})
+```
+
+By grouping these graphs into the four experimental groups, a small pattern can be observed with the new-compound plus exercise group generally showing angles clustered more closely around upright (0°), indicating smaller deviations and less variability (balanced). Participant 15 has the narrowest spread, while Participant 11 in the control/no-exercise group has the widest.
+
+Now that I have visually represented the data to understand its meaning. I will now provide descriptive statistics on Interquartile Range through boxplots to standardise comparison between subjects.
+
+First I will check for outlier's.
+
+#### Check for Outlier's (Individual Readings):
+
+```{r}
+# Identify readings outside each participant's 1.5 × IQR boundaries
+outlier_summary <- gait_long |>
+  left_join(
+    participant_stats |>
+      dplyr::select(donorid, q1_gait, q3_gait),
+    by = "donorid"
+  ) |>
+  mutate(
+    angle = if_else(is.finite(gait_value), gait_value, NA_real_),
+    lower_limit = q1_gait - 1.5 * (q3_gait - q1_gait),
+    upper_limit = q3_gait + 1.5 * (q3_gait - q1_gait),
+    flagged = angle < lower_limit | angle > upper_limit
+  ) |>
+  group_by(donorid, treatment, exercise) |>
+  summarise(
+    valid_readings = sum(!is.na(angle)),
+    missing_readings = sum(is.na(angle)),
+    outlier_count = sum(flagged, na.rm = TRUE),
+    percent_outliers = if_else(
+      valid_readings > 0,
+      round(100 * outlier_count / valid_readings, 2),
+      NA_real_
+    ),
+    .groups = "drop"
+  ) |>
+  arrange(desc(outlier_count))
+
+# Display all participants
+print(outlier_summary, n = Inf, width = Inf)
+
+# Optional: run in the Console for easier viewing
+# View(outlier_summary)
+```
+
+Based on these observations, the identified outlier's from on the 1.5 x IQR rule will not be excluded as the clinical significance cannot be determined. Removing outlier's may impact statistical analysis. Instead, outlier's will be flagged, and later identified if flagged individuals have significant contribution to results.
+
+#### Visualisation Boxplots:
+
+Further visualisation of descriptive statistics will be determined through Boxplots for each participant. Each boxplot shows a participant’s median gait angle, middle 50% of measurements (IQR), spread and extreme values, allowing comparison of recorded orientation and variability across participants and treatment groups.
+
+Grouped by Treatment Group, ordered by IQR size
+
+```{r}
+library(tidyr)
+library(ggplot2)
+
+# Order participants by IQR within each treatment
+participant_order <- participant_stats |>
+  left_join(
+    gait_data |>
+      dplyr::select(donorid, participant_label),
+    by = "donorid"
+  ) |>
+  arrange(treatment, iqr_gait) |>
+  pull(participant_label) |>
+  as.character()
+
+# Update participant ordering
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      as.character(participant_label),
+      levels = unique(participant_order)
+    )
+  )
+
+# Create the plot
+participant_boxplot <- ggplot(
+  gait_long,
+  aes(
+    x = participant_label,
+    y = gait_value,
+    fill = treatment
+  )
+) +
+  geom_boxplot(
+    outlier.colour = "red",
+    na.rm = TRUE
+  ) +
+  scale_y_continuous(
+    breaks = seq(-60, 60, by = 15)
+  ) +
+  coord_flip() +
+  facet_grid(
+    rows = vars(treatment),
+    scales = "free_y",
+    space = "free_y"
+  ) +
+  labs(
+    title = "Distribution of Gait Measurements by Participant",
+    x = "Participant",
+    y = "Gait angle (degrees)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+# Display the plot
+participant_boxplot
+
+# Save a high-resolution image in the working directory
+ggsave(
+  filename = "participant_gait_boxplots.png",
+  plot = participant_boxplot,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+#### Interpretation of Boxplots: 
+
+Most participants’ measurements are centred near 0°, meaning they tend to lean neither consistently left nor right. The new-compound group generally has smaller boxes and shorter whiskers, suggesting less variation in their angles than the L-DOPA group. Participant 11 shows the most variation, while Participant 15 shows the least. The red dots represent unusually high or low readings for each participant, but these are not necessarily errors. The graph suggests a treatment difference, although statistical analysis is needed to assess it.
+
+This provides useful descriptive statistic information, showing a visual difference between participants, and overall between the two treatment groups. But this makes it difficult to see any total differences between treatment group, exercise group, or age. Therefore, I will make summary boxplots for the gate data between each of these three groups to make interpretation easier.
+
+#### Boxplots for L-DOPA Control and New Compound Treatment group:
+
+```{r}
+# Create one boxplot per treatment using the existing gait_long data
+treatment_boxplot <- ggplot(
+  gait_long,
+  aes(
+    x = treatment,
+    y = gait_value,
+    fill = treatment
+  )
+) +
+  geom_boxplot(
+    outlier.colour = "red",
+    na.rm = TRUE
+  ) +
+  scale_x_discrete(
+    limits = rev(sort(unique(as.character(gait_long$treatment))))
+  ) +
+  scale_y_continuous(
+    breaks = seq(-60, 60, by = 15)
+  ) +
+  coord_flip() +
+  labs(
+    title = "Gait Measurements by Treatment",
+    x = NULL,
+    y = "Gait angle (degrees)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+# Display the plot
+treatment_boxplot
+
+# Save a high-resolution image
+ggsave(
+  filename = "treatment_gait_boxplots.png",
+  plot = treatment_boxplot,
+  width = 10,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Here a narrower spread can be observed in the new compound group, suggesting less variation in recorded gait angles than the L-DOPA group.
+
+#### Boxplots for No Exercise vs Exercise group:
+
+This groups participants into the exercise group to obtain any visual differences in gait angle variation
+
+```{r}
+# Create one boxplot per exercise group
+exercise_boxplot <- ggplot(
+  gait_long,
+  aes(
+    x = exercise,
+    y = gait_value,
+    fill = exercise
+  )
+) +
+  geom_boxplot(
+    outlier.colour = "red",
+    na.rm = TRUE
+  ) +
+  scale_x_discrete(
+    limits = c("y", "n"),
+    labels = c("y" = "Exercise", "n" = "No exercise")
+  ) +
+  scale_y_continuous(
+    breaks = seq(-60, 60, by = 15)
+  ) +
+  coord_flip() +
+  labs(
+    title = "Gait Measurements by Exercise",
+    x = NULL,
+    y = "Gait angle (degrees)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+# Display the plot
+exercise_boxplot
+
+# Save a high-resolution image
+ggsave(
+  filename = "exercise_gait_boxplots.png",
+  plot = exercise_boxplot,
+  width = 10,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Here there is also an observable narrower spread in the exercise group, suggesting less variation in the recorded gait angles compared to the no exercise group.
+
+#### Boxplots for Younger vs Older age group:
+
+Here, the participants have been separated by age into two groups. Determined by being above or below median age. This allows the continuous data to be observed in a two group binary format to maintain the boxplot visual analysis.
+
+```{r}
+# Calculate the median age across participants
+median_age <- median(gait_data$age, na.rm = TRUE)
+
+# Create two age groups
+gait_long <- gait_long |>
+  mutate(
+    age_group = case_when(
+      age < median_age  ~ "Younger",
+      age >= median_age ~ "Older"
+    )
+  )
+
+# Create one boxplot per age group
+age_boxplot <- ggplot(
+  filter(gait_long, !is.na(age_group)),
+  aes(
+    x = age_group,
+    y = gait_value,
+    fill = age_group
+  )
+) +
+  geom_boxplot(
+    outlier.colour = "red",
+    na.rm = TRUE
+  ) +
+  scale_x_discrete(
+    limits = c("Younger", "Older")
+  ) +
+  scale_y_continuous(
+    breaks = seq(-60, 60, by = 15)
+  ) +
+  coord_flip() +
+  labs(
+    title = "Gait Measurements by Age Group",
+    subtitle = paste0(
+      "Median age: ", round(median_age, 2),
+      " years; younger < median, older ≥ median"
+    ),
+    x = NULL,
+    y = "Gait angle (degrees)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+
+# Display the plot
+age_boxplot
+
+# Save a high-resolution image
+ggsave(
+  filename = "age_group_gait_boxplots.png",
+  plot = age_boxplot,
+  width = 10,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Again, here there is an observed narrower spread in the younger age group, suggesting less variation in recorded gait angles compared to the older age group. These three visualisations of angle variation suggest that all three variables (treatment, exercise, and age) may have contributing factors to gait angle.
+
+As this clinical trial has two experimental variables, we can separate our individuals participant boxplots into treatment and exercise groups to visually inspect any gait angle variation differences.
+
+#### Boxplots for Four Groups Based on Experimental Variables:
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Define the four groups
+gait_long <- gait_long |>
+  mutate(
+    group = case_when(
+      treatment == "L-DOPA control" & exercise == "n" ~
+        "control + no exercise",
+      treatment == "L-DOPA control" & exercise == "y" ~
+        "control + exercise",
+      treatment == "New compound" & exercise == "n" ~
+        "treatment + no exercise",
+      treatment == "New compound" & exercise == "y" ~
+        "treatment + exercise"
+    ),
+    group = factor(
+      group,
+      levels = c(
+        "control + no exercise",
+        "control + exercise",
+        "treatment + no exercise",
+        "treatment + exercise"
+      )
+    )
+  )
+
+# Check that all participants have been assigned to a group
+if (anyNA(gait_long$group)) {
+  stop("Some treatment or exercise values do not match the group definitions.")
+}
+
+# Order participants using previously calculated IQR values
+participant_order <- gait_long |>
+  distinct(donorid, participant_label, group) |>
+  left_join(
+    participant_stats |>
+      dplyr::select(donorid, iqr_gait),
+    by = "donorid"
+  ) |>
+  arrange(group, iqr_gait) |>
+  pull(participant_label) |>
+  as.character()
+
+gait_long <- gait_long |>
+  mutate(
+    participant_label = factor(
+      as.character(participant_label),
+      levels = unique(participant_order)
+    )
+  )
+
+# Two-line group labels
+group_labels <- c(
+  "control + no exercise" = "L-DOPA control\nNo exercise",
+  "control + exercise" = "L-DOPA control\nExercise",
+  "treatment + no exercise" = "New compound\nNo exercise",
+  "treatment + exercise" = "New compound\nExercise"
+)
+
+# Define colours once for reuse in later plots
+group_colours <- c(
+  "control + no exercise" = "#E69F00",
+  "control + exercise" = "#56B4E9",
+  "treatment + no exercise" = "#009E73",
+  "treatment + exercise" = "#CC79A7"
+)
+
+# Create the plot
+group_participant_boxplot <- ggplot(
+  gait_long,
+  aes(
+    x = participant_label,
+    y = gait_value,
+    fill = group
+  )
+) +
+  geom_boxplot(
+    width = 0.65,
+    colour = "grey25",
+    outlier.colour = "red",
+    outlier.size = 1.5,
+    na.rm = TRUE
+  ) +
+  scale_fill_manual(
+    values = group_colours
+  ) +
+  scale_y_continuous(
+    breaks = seq(-60, 60, by = 15)
+  ) +
+  coord_flip() +
+  facet_grid(
+    rows = vars(group),
+    scales = "free_y",
+    space = "free_y",
+    labeller = labeller(group = group_labels)
+  ) +
+  labs(
+    title = "Gait Measurements by Treatment and Exercise",
+    x = "Participant",
+    y = "Gait angle (degrees)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    
+    # Separate the four panels
+    panel.spacing.y = grid::unit(1, "lines"),
+    
+    # Panel borders
+    panel.border = element_rect(
+      colour = "grey65",
+      fill = NA,
+      linewidth = 0.6
+    ),
+    
+    # Shaded group labels
+    strip.background = element_rect(
+      fill = "grey92",
+      colour = "grey65"
+    ),
+    
+    # Horizontal, bold group labels
+    strip.text.y = element_text(
+      angle = 0,
+      face = "bold",
+      size = 11,
+      margin = margin(8, 10, 8, 10)
+    ),
+    
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+
+# Display the plot
+group_participant_boxplot
+
+# Save a high-resolution image
+ggsave(
+  filename = "participant_gait_by_treatment_exercise.png",
+  plot = group_participant_boxplot,
+  width = 10,
+  height = 8,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+This allows us to easily see the variation between participants for each group, but makes it difficult to determine if there are between group differences. Therefore, I will provide summary boxplots for each group, allowing easier comparison.
+
+#### Summary boxplots for the four groups:
+
+```{r}
+library(ggplot2)
+
+# Compare pooled gait measurements across the four groups
+group_boxplot <- ggplot(
+  gait_long,
+  aes(
+    x = group,
+    y = gait_value,
+    fill = group
+  )
+) +
+  geom_boxplot(
+    width = 0.65,
+    colour = "grey25",
+    outlier.colour = "red",
+    outlier.size = 1.5,
+    na.rm = TRUE
+  ) +
+  scale_fill_manual(
+    values = group_colours
+  ) +
+  scale_x_discrete(
+    limits = rev(levels(gait_long$group)),
+    labels = group_labels
+  ) +
+  scale_y_continuous(
+    breaks = seq(-60, 60, by = 15)
+  ) +
+  coord_flip() +
+  labs(
+    title = "Gait Measurements by Treatment and Exercise",
+    x = NULL,
+    y = "Gait angle (degrees)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    
+    # Match the previous graph's panel border
+    panel.border = element_rect(
+      colour = "grey65",
+      fill = NA,
+      linewidth = 0.6
+    ),
+    
+    # Bold, two-line group labels
+    axis.text.y = element_text(
+      face = "bold",
+      size = 11,
+      colour = "black",
+      margin = margin(r = 10)
+    ),
+    
+    # Reduce visual clutter
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+
+# Display the plot
+group_boxplot
+
+# Save a high-resolution image
+ggsave(
+  filename = "group_gait_by_treatment_exercise.png",
+  plot = group_boxplot,
+  width = 10,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Here we can see that the new-compound plus exercise group shows the least variation, while L-DOPA without exercise shows the most; exercise groups have narrower spreads within both treatments.
+
+These visualisations of the IQR data are useful as they show the spread of the middle 50% of each participant’s gait angles, but Root Mean Squares (RMS) is better suited to summarising overall deviation from upright. I will therefore visualise each participant’s RMS, calculated by squaring their recorded angles, taking the mean, and then taking the square root. This includes all readings and gives greater weight to larger deviations. SD was not selected because it measures variation around the participant’s own mean, potentially overlooking a consistent lean away from upright. RMS captures both this lean and variability, making it a useful proxy for balance, although it does not directly measure gait smoothness over time.
+
+#### Root Square Means Descriptive Statistics Plots:
+
+Using RMS data, we are able to generate three different visual descriptive statistic plots
+
+- Box plot of RMS Gait Deviation by Treatment group, with Exercise and Age visualisations
+
+- Box plot of RMS Gait Deviation by Exercise group, with Treatment and Age visualisations
+
+- Scatterplot of RMS Gait Deviation by Age, with Treatment and Exercise group visualisations
+
+```{r}
+library(paletteer)
+
+# Ensure the grouping variables are categorical
+plot_data <- participant_stats
+plot_data$treatment <- factor(plot_data$treatment)
+plot_data$exercise <- factor(plot_data$exercise, levels = c("n", "y"))
+
+
+# Boxplot for Treatment v RMS score
+ggplot(plot_data, aes(x = treatment, y = rms_gait)) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = exercise, size = age),
+    position = position_jitter(width = 0.08, height = 0, seed = 123),
+    shape = 16,
+    alpha = 0.8
+  ) +
+  scale_colour_manual(
+    values = c("n" = "#D55E00", "y" = "#0072B2"),
+    labels = c("n" = "No exercise", "y" = "Exercise"),
+    name = "Exercise"
+  ) +
+  scale_radius(
+    name = "Age (years)",
+    range = c(2, 6),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS gait deviation by treatment",
+    x = "Treatment",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+
+
+# Boxplot for Exercise v RMS score
+ggplot(plot_data, aes(x = exercise, y = rms_gait)) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = treatment, size = age),
+    position = position_jitter(width = 0.08, height = 0, seed = 123),
+    shape = 16,
+    alpha = 0.8
+  ) +
+  scale_x_discrete(
+    labels = c("n" = "No exercise", "y" = "Exercise")
+  ) +
+  scale_colour_manual(
+    values = c(
+      "L-DOPA control" = "#CDAD00",
+      "New compound" = "#548B54"
+    ),
+    name = "Treatment"
+  ) +
+  scale_radius(
+    name = "Age (years)",
+    range = c(2, 6),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS gait deviation by exercise",
+    x = "Exercise",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+
+
+# Scatterplot for Age v RMS score
+ggplot(plot_data, aes(x = age, y = rms_gait)) +
+  geom_point(
+    aes(colour = exercise, shape = treatment),
+    size = 3,
+    alpha = 0.8
+  ) +
+  geom_smooth(
+    method = "lm",
+    formula = y ~ x,
+    se = TRUE,
+    colour = "black"
+  ) +
+  scale_colour_manual(
+    values = c("n" = "#D55E00", "y" = "#0072B2"),
+    labels = c("n" = "No exercise", "y" = "Exercise"),
+    name = "Exercise"
+  ) +
+  scale_shape_discrete(
+    name = "Treatment"
+  ) +
+  coord_cartesian(ylim = c(0, NA)) +
+  labs(
+    title = "RMS gait deviation by age",
+    x = "Age (years)",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal()
+```
+
+- **By treatment:** The new-compound group has a lower median RMS than the L-DOPA group, indicating less overall deviation from upright. Exercising participants generally have lower RMS values, particularly in the new-compound group, while older participants tend to have higher values.
+
+- **By exercise:** Participants who exercise have a lower median RMS than those who do not. The lowest values occur among participants receiving the new compound who also exercise; larger points suggest that older participants generally have higher RMS.
+
+- **By age:** RMS generally increases with age. Exercising participants and those receiving the new compound tend to have lower values than others of similar ages, although there is variation.
+
+#### Answer to Question 1:
+
+These descriptive statistics for RMS gait deviation provide the most useful information in capturing overall gait balance for the participants. RMS provides a useful overall summary because it combines all recorded angles into one measure of deviation from upright, capturing both variability and consistent lean. The three graphs reveal lower RMS values among participants receiving the new compound and exercising, and higher values with increasing age. This makes RMS useful for comparing participants’ overall gait deviation as a proxy for balance. Although, this data has not included time as a variable to most accurately capture smoothness.
+
+To best capture smoothness, measuring the variability between each observed time point allows insight into how the participant moved second to second. Having "smoother" movement would be represented as less change between each time point.
+
+This can be measured through Root Mean Square of Successive Differences (RMSSD). It summarises how much a participants angle changes between consecutive time points, allowing a second-to-second angular variability measurement. Capturing a greater representation of smoothness.
+
+#### Root Mean Square of Successive Differences (RMSSD):
+
+```{r}
+# Calculate one RMSSD score per participant
+participant_smoothness <- gait_long |>
+  
+  # Convert time labels (e.g. "20_secs") into numeric seconds
+  mutate(
+    second = as.numeric(sub("_secs$", "", time))
+  ) |>
+  
+  # Analyse each participant separately, retaining their characteristics
+  group_by(donorid, treatment, exercise, age) |>
+  
+  # Put readings in chronological order within each participant
+  arrange(second, .by_group = TRUE) |>
+  
+  # Calculate changes only between valid readings one second apart
+  mutate(
+    angle_change = if_else(
+      second - lag(second) == 1 &
+        is.finite(gait_value) &
+        is.finite(lag(gait_value)),
+      gait_value - lag(gait_value),
+      NA_real_
+    )
+  ) |>
+  
+  # Summarise second-to-second angular variability
+  summarise(
+    # Count usable consecutive pairs
+    valid_pairs = sum(!is.na(angle_change)),
+    
+    # Square changes, average them, then take the square root
+    rmssd_gait = if (valid_pairs > 0) {
+      sqrt(mean(angle_change^2, na.rm = TRUE))
+    } else {
+      # Return a missing value if no valid pairs exist
+      NA_real_
+    },
+    
+    # Return an ungrouped summary table
+    .groups = "drop"
+  )
+
+# Display all participants and columns
+print(participant_smoothness, n = Inf, width = Inf)
+```
+
+#### Visualisation of RMSSD Values:
+
+This graph shows the absolute change between each angle measurement per second for each participant, organised by the four experimental groups.
+
+```{r}
+# Prepare changes between consecutive readings
+participant_changes <- gait_long |>
+  
+  # Convert time labels into numeric seconds
+  mutate(
+    second = as.numeric(sub("_secs$", "", time))
+  ) |>
+  
+  # Calculate changes separately for each participant
+  group_by(donorid) |>
+  
+  # Put readings in chronological order
+  arrange(second, .by_group = TRUE) |>
+  
+  mutate(
+    # Use only valid readings exactly one second apart
+    absolute_change = if_else(
+      second - lag(second) == 1 &
+        is.finite(gait_value) &
+        is.finite(lag(gait_value)),
+      
+      # Measure the size of the change, regardless of direction
+      abs(gait_value - lag(gait_value)),
+      NA_real_
+    ),
+    
+    # Start a new line segment at missing readings or time gaps
+    line_segment = cumsum(
+      is.na(absolute_change) |
+        coalesce(second - lag(second) != 1, TRUE)
+    )
+  ) |>
+  
+  # Remove grouping after calculating participant-level changes
+  ungroup()
+
+# Set time on the x-axis and absolute angle change on the y-axis
+angle_change_plot <- ggplot(
+  participant_changes,
+  aes(
+    x = second,
+    y = absolute_change,
+    colour = group,
+    
+    # Keep participants and uninterrupted recording segments separate
+    group = interaction(donorid, line_segment)
+  )
+) +
+  
+  # Connect successive changes with a thin line
+  geom_line(
+    linewidth = 0.35,
+    na.rm = TRUE
+  ) +
+  
+  # Give each participant a panel, arranged in four columns
+  facet_wrap(
+    ~ participant_label,
+    ncol = 4
+  ) +
+  
+  # Reuse the treatment–exercise colours and labels
+  scale_colour_manual(
+    values = group_colours,
+    labels = group_labels,
+    name = NULL
+  ) +
+  
+  # Start the y-axis at zero and leave space above the highest value
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  
+  # Add the title, explanation and axis labels
+  labs(
+    title = "Changes in Gait Angle Over Time",
+    subtitle = "Each value shows the absolute change from the preceding second",
+    x = "Recording time (seconds)",
+    y = "Absolute angle change (degrees)"
+  ) +
+  
+  # Apply a simple visual style
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    
+    # Outline each participant's panel
+    panel.border = element_rect(
+      colour = "grey65",
+      fill = NA,
+      linewidth = 0.6
+    ),
+    
+    # Shade the participant-label backgrounds
+    strip.background = element_rect(
+      fill = "grey92",
+      colour = "grey65"
+    ),
+    
+    # Emphasise labels and remove minor gridlines
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  ) +
+  
+  # Arrange legend entries across two rows
+  guides(
+    colour = guide_legend(nrow = 2, byrow = TRUE)
+  )
+
+# Display the plot
+angle_change_plot
+
+# Save a 14 × 10 inch PNG at 300 dots per inch
+ggsave(
+  filename = "participant_angle_changes_over_time.png",
+  plot = angle_change_plot,
+  width = 14,
+  height = 10,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+This can now be converted into dot plot graph that shows the summary of each RMSSD value between participants, separated by group.
+
+```{r}
+# Add participant labels and treatment–exercise groups
+smoothness_plot_data <- participant_smoothness |>
+  left_join(
+    gait_long |>
+      distinct(donorid, participant_label, group),
+    by = "donorid"
+  ) |>
+  filter(is.finite(rmssd_gait)) |>
+  arrange(group, rmssd_gait) |>
+  mutate(
+    participant_label = factor(
+      as.character(participant_label),
+      levels = unique(as.character(participant_label))
+    )
+  )
+
+# Plot participant RMSSD values
+smoothness_plot <- ggplot(
+  smoothness_plot_data,
+  aes(
+    x = rmssd_gait,
+    y = participant_label,
+    colour = group
+  )
+) +
+  geom_segment(
+    aes(
+      x = 0,
+      xend = rmssd_gait,
+      yend = participant_label
+    ),
+    linewidth = 1
+  ) +
+  geom_point(size = 3.5) +
+  scale_colour_manual(
+    values = group_colours
+  ) +
+  scale_x_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.08))
+  ) +
+  facet_grid(
+    rows = vars(group),
+    scales = "free_y",
+    space = "free_y",
+    labeller = labeller(group = group_labels)
+  ) +
+  labs(
+    title = "Second-to-Second Angular Variability by Participant",
+    subtitle = "Lower RMSSD indicates smaller changes between consecutive seconds",
+    x = "RMSSD of gait angle (degrees)",
+    y = "Participant"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    panel.spacing.y = grid::unit(1, "lines"),
+    panel.border = element_rect(
+      colour = "grey65",
+      fill = NA,
+      linewidth = 0.6
+    ),
+    strip.background = element_rect(
+      fill = "grey92",
+      colour = "grey65"
+    ),
+    strip.text.y = element_text(
+      angle = 0,
+      face = "bold",
+      size = 11,
+      margin = margin(8, 10, 8, 10)
+    ),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+
+# Display the plot
+smoothness_plot
+
+# Save a high-resolution image
+ggsave(
+  filename = "participant_gait_rmssd.png",
+  plot = smoothness_plot,
+  width = 11,
+  height = 8,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Participants receiving the new compound with exercise have the lowest RMSSD values, indicating smaller changes in gait angle between consecutive seconds. The L-DOPA control group without exercise generally shows greater variability. Participant 15 has the lowest variability and Participant 11 the highest, suggesting that the combination of the new compound and exercise is associated with steadier recorded movement.
+
+#### Further Answer to Question 1:
+
+Between the RMS and RMSSD values, these provide the best descriptive statistics to capture both gait balance and smoothness for participants.
+
+### Question 2:
+
+*Is there a statistically significant difference in gait between participants receiving L-DOPA and the new compound? Ensure that you check your assumptions.*
+
+To investigate whether gait differed between participants receiving L-DOPA and the new compound, participant-level root mean square (RMS) gait deviation was selected as the primary outcome. RMS summarises deviation from upright across the recording, with lower values indicating smaller overall deviations. Each participant contributed one RMS score, giving eight independent observations per treatment group.
+
+#### **RMS analysis:** Comparison of Overall Gait Deviation Between Treatments
+
+**Assumption Checks:**
+
+**Independence:** Independence between participants was assumed based on the study design, with each participant contributing data to only one treatment group and no known matching or clustering between participants. Repeated gait readings were summarised into one RMS value per participant, so the analysis used 16 participant-level observations rather than treating all individual readings as independent.
+
+**Normality and Skewness:** Normality will be assessed through Q-Q plots, and Shapiro-Wilk test.
+
+**Continuous Outcome:** RMS is a numerical, continuous measurement
+
+**Extreme or Influential Observations:** Participant RMS plots will be inspected for unusually high or low values. If identified, their influence on the estimated treatment difference will be assessed through a sensitivity analysis.
+
+```{r}
+# Consistent treatment colours
+treatment_colours <- c(
+  "L-DOPA control" = "#D55E00",
+  "New compound" = "#0072B2"
+)
+
+# Q–Q plots for each treatment group
+qq_plot <- ggplot(
+  participant_stats,
+  aes(sample = rms_gait, colour = treatment)
+) +
+  stat_qq(size = 3) +
+  stat_qq_line(colour = "black") +
+  facet_wrap(~ treatment) +
+  scale_colour_manual(values = treatment_colours) +
+  labs(
+    title = "Q–Q Plots of Participant RMS",
+    x = "Theoretical quantiles",
+    y = "RMS (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save Q–Q plots
+qq_plot
+
+ggsave(
+  filename = "rms_qq_plots.png",
+  plot = qq_plot,
+  width = 10,
+  height = 5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+# Shapiro–Wilk normality test within each treatment
+normality_results <- participant_stats |>
+  group_by(treatment) |>
+  summarise(
+    shapiro_p = shapiro.test(rms_gait)$p.value,
+    .groups = "drop"
+  )
+
+print(normality_results)
+
+# Boxplot with participant scores coloured by treatment
+rms_boxplot <- ggplot(
+  participant_stats,
+  aes(x = treatment, y = rms_gait)
+) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = treatment),
+    position = position_jitter(
+      width = 0.08,
+      height = 0,
+      seed = 123
+    ),
+    shape = 16,
+    size = 3,
+    alpha = 0.8
+  ) +
+  scale_colour_manual(values = treatment_colours) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "RMS Gait Deviation by Treatment",
+    x = "Treatment",
+    y = "Participant RMS (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save the boxplot
+rms_boxplot
+
+ggsave(
+  filename = "rms_treatment_assumptions.png",
+  plot = rms_boxplot,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Shapiro–Wilk tests did not detect significant departures from normality in either treatment group (L-DOPA: p = 0.109; new compound: p = 0.554). The new-compound Q–Q plot was broadly consistent with normality, while the L-DOPA plot showed a tail departure, particularly one high RMS score (as seen in the boxplot). Considering these findings alongside the study design, the assumptions were judged sufficiently reasonable to proceed with Welch’s t-test, although the small sample sizes warranted caution, and a sensitivity analysis is planned to assess the influence of the high L-DOPA observation.
+
+#### Two-Sided Welch's Independent-Samples t-test:
+
+Based on this, a A two-sided Welch’s independent-samples t-test will be used to compare the mean participant RMS gait deviation between the L-DOPA and new-compound groups, using a significance level of 0.05. All 16 participants will be included in the primary analysis. A sensitivity analysis will repeat the test without the highest L-DOPA RMS observation to assess its influence on the estimated difference and conclusions.
+
+```{r}
+# Set the comparison direction: new compound minus L-DOPA
+test_data <- participant_stats |>
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("New compound", "L-DOPA control")
+    )
+  )
+
+# Primary analysis: include every participant
+primary_test <- t.test(
+  rms_gait ~ treatment,
+  data = test_data,
+  var.equal = FALSE,
+  alternative = "two.sided"
+)
+
+primary_test
+
+# Identify the participant with the highest L-DOPA RMS
+high_participant <- test_data |>
+  filter(treatment == "L-DOPA control") |>
+  slice_max(rms_gait, n = 1, with_ties = FALSE)
+
+print(high_participant)
+
+# Sensitivity analysis: temporarily exclude that participant
+sensitivity_test <- t.test(
+  rms_gait ~ treatment,
+  data = filter(
+    test_data,
+    donorid != high_participant$donorid
+  ),
+  var.equal = FALSE,
+  alternative = "two.sided"
+)
+
+sensitivity_test
+```
+
+The primary Welch’s t-test found a statistically significant difference in mean RMS gait deviation between treatments: the new-compound group averaged 7.19°, compared with 10.94° for L-DOPA. The estimated difference was −3.76° (95% CI: −7.30° to −0.21°; *p* = 0.039), indicating lower overall deviation from upright with the new compound.
+
+After excluding the highest L-DOPA observation, the estimated difference remained in the same direction but decreased to −2.85° (95% CI: −6.00° to 0.29°; *p* = 0.071). This sensitivity analysis did not reach the 0.05 significance threshold.
+
+Therefore, the full-data analysis supports a treatment difference, but the statistical significance is sensitive to that participant’s inclusion.
+
+#### **RMSSD analysis:** Comparison of Second-to-Second Angular Variability Between Treatments
+
+Participant-level root mean square of successive differences (RMSSD) was selected as a secondary outcome. RMSSD summarises changes in gait angle between consecutive seconds, with lower values indicating smaller changes. Each participant contributed one RMSSD score. This complements RMS by describing second-to-second angular variability rather than overall deviation from upright.
+
+**Assumption checks**
+
+**Independence:** The same study-design considerations apply as in the RMS analysis. Each participant contributed one score and belonged to only one treatment group.
+
+**Normality and skewness:** Treatment-specific Q–Q plots and Shapiro–Wilk tests will assess whether the RMSSD distributions are approximately normal.
+
+**Continuous outcome:** RMSSD is a numerical, continuous measurement.
+
+**Extreme or influential observations:** Participant RMSSD scores will be inspected for unusually high or low values. If identified, their influence will be assessed through a sensitivity analysis.
+
+```{r}
+# Q–Q plots for participant RMSSD
+rmssd_qq_plot <- ggplot(
+  participant_smoothness,
+  aes(sample = rmssd_gait, colour = treatment)
+) +
+  stat_qq(size = 3) +
+  stat_qq_line(colour = "black") +
+  facet_wrap(~ treatment) +
+  scale_colour_manual(values = treatment_colours) +
+  labs(
+    title = "Q–Q Plots of Participant RMSSD",
+    x = "Theoretical quantiles",
+    y = "RMSSD (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save
+rmssd_qq_plot
+
+ggsave(
+  filename = "rmssd_qq_plots.png",
+  plot = rmssd_qq_plot,
+  width = 10,
+  height = 5,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+# Shapiro–Wilk tests within each treatment
+rmssd_normality_results <- participant_smoothness |>
+  group_by(treatment) |>
+  summarise(
+    shapiro_p = shapiro.test(rmssd_gait)$p.value,
+    .groups = "drop"
+  )
+
+print(rmssd_normality_results)
+
+# Inspect individual RMSSD scores
+rmssd_boxplot <- ggplot(
+  participant_smoothness,
+  aes(x = treatment, y = rmssd_gait)
+) +
+  geom_boxplot(
+    width = 0.5,
+    fill = "grey90",
+    outlier.shape = NA
+  ) +
+  geom_point(
+    aes(colour = treatment),
+    position = position_jitter(
+      width = 0.08,
+      height = 0,
+      seed = 123
+    ),
+    shape = 16,
+    size = 3,
+    alpha = 0.8
+  ) +
+  scale_colour_manual(values = treatment_colours) +
+  scale_y_continuous(
+    limits = c(0, NA),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    title = "Second-to-Second Angular Variability by Treatment",
+    x = "Treatment",
+    y = "Participant RMSSD (degrees)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Display and save
+rmssd_boxplot
+
+ggsave(
+  filename = "rmssd_treatment_assumptions.png",
+  plot = rmssd_boxplot,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+```
+
+Shapiro–Wilk tests did not detect significant departures from normality in either treatment group (L-DOPA: p = 0.0999; new compound: p = 0.696). The new-compound Q–Q plot was broadly consistent with normality, while the L-DOPA plot showed tail departure, particularly one high RMSSD score of approximately 24°. Considering these findings alongside the study design, the assumptions were judged sufficiently reasonable to proceed with Welch’s t-test, although the small sample sizes warrant caution. A sensitivity analysis will assess the influence of the high L-DOPA observation.
+
+A two-sided Welch’s independent-samples t-test will compare mean participant RMSSD between treatments. All 16 participants will be included in the main analysis, followed by a sensitivity analysis excluding the participant with the highest L-DOPA RMSSD.
+
+```{r}
+# Set the comparison direction: new compound minus L-DOPA
+rmssd_test_data <- participant_smoothness |>
+  mutate(
+    treatment = factor(
+      treatment,
+      levels = c("New compound", "L-DOPA control")
+    )
+  )
+
+# Main RMSSD analysis: include all participants
+rmssd_test <- t.test(
+  rmssd_gait ~ treatment,
+  data = rmssd_test_data,
+  var.equal = FALSE,
+  alternative = "two.sided"
+)
+
+rmssd_test
+
+# Identify the highest L-DOPA RMSSD observation
+high_rmssd_participant <- rmssd_test_data |>
+  filter(treatment == "L-DOPA control") |>
+  slice_max(rmssd_gait, n = 1, with_ties = FALSE)
+
+print(high_rmssd_participant)
+
+# Sensitivity analysis: temporarily exclude that participant
+rmssd_sensitivity_test <- t.test(
+  rmssd_gait ~ treatment,
+  data = filter(
+    rmssd_test_data,
+    donorid != high_rmssd_participant$donorid
+  ),
+  var.equal = FALSE,
+  alternative = "two.sided"
+)
+
+rmssd_sensitivity_test
+```
+
+The new-compound group had a lower mean RMSSD (10.21°) than the L-DOPA group (15.43°), indicating smaller second-to-second changes in gait angle. The estimated difference was −5.21° (95% CI: −10.20° to −0.22°; unadjusted *p* = 0.0419), which was statistically significant before adjustment for testing two outcomes.
+
+After excluding participant d209, the difference decreased to −3.94° (95% CI: −8.37° to 0.49°; *p* = 0.0755). The direction remained consistent, but the result no longer reached the 0.05 threshold, showing that statistical significance was sensitive to this participant’s inclusion.
+
+### Question 3: 
+
+*Does either of age or the exercise regime affect gait? If so, take this into consideration when investigating the relationship between the treatment and gait.*
+
+To investigate whether age or exercise regime affected gait differences between participants receiving L-DOPA and the new compound, participant-level root mean square (RMS) gait deviation was again selected as the primary outcome. A multiple linear regression model will be used to investigate this using treatment, exercise and age as predictors.
+
+#### Multiple Linear Regression (RMS):
+
+**Assumptions:**
+
+**Independence:** Assessed from the study design. Each participant contributes one score to each model, with no known matching or clustering between participants.
+
+**Linearity:** The relationship between age and the outcome, after accounting for treatment and exercise, will be assessed using a partial residual plot for age. A roughly straight pattern supports modelling age as a linear predictor.
+
+**Normality of residuals:** Assessed using a residual Q–Q plot, supported by a Shapiro–Wilk test interpreted cautiously because the sample is small. Points approximately following the reference line support this assumption.
+
+**Constant residual variance:** Assessed using residual-versus-fitted and scale–location plots. A reasonably consistent spread, without a funnel-shaped pattern, supports this assumption.
+
+**Influential observations:** Assessed using studentised residuals, leverage, and Cook’s distance. Potentially influential participants will be investigated, with sensitivity analyses used where warranted rather than automatically excluding them.
+
+```{r}
+# Prepare a copy with explicit reference groups
+rms_model_data <- participant_stats |>
+  mutate(
+    treatment = relevel(factor(treatment), ref = "L-DOPA control"),
+    exercise = relevel(factor(exercise), ref = "n")
+  ) |>
+  as.data.frame()
+
+# Label diagnostic observations with donor IDs
+rownames(rms_model_data) <- rms_model_data$donorid
+
+# Fit the adjusted RMS model
+model_rms <- lm(
+  rms_gait ~ treatment + exercise + age,
+  data = rms_model_data,
+  na.action = na.fail
+)
+
+# Function to draw all diagnostic plots
+draw_rms_diagnostics <- function() {
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(
+    mfrow = c(2, 3),
+    mar = c(4, 4, 3, 1)
+  )
+  
+  # Linearity: partial residual plot for age
+  # Black = fitted linear relationship; blue = smoothed pattern
+  termplot(
+    model_rms,
+    terms = "age",
+    partial.resid = TRUE,
+    smooth = panel.smooth,
+    col.term = "black",
+    col.smth = "#0072B2",
+    col.res = "grey40",
+    pch = 16,
+    main = "Linearity: age",
+    xlabs = "Age (years)",
+    ylabs = "Partial residuals"
+  )
+  
+  # Normality: residual Q–Q plot
+  plot(model_rms, which = 2, sub.caption = "", ask = FALSE)
+  
+  # Mean pattern and variance: residuals versus fitted values
+  plot(model_rms, which = 1, sub.caption = "", ask = FALSE)
+  
+  # Constant variance: scale–location plot
+  plot(model_rms, which = 3, sub.caption = "", ask = FALSE)
+  
+  # Influence: Cook's distance for each participant
+  plot(model_rms, which = 4, sub.caption = "", ask = FALSE)
+  
+  # Leverage and residual size
+  plot(model_rms, which = 5, sub.caption = "", ask = FALSE)
+}
+
+# Display the diagnostic plots
+draw_rms_diagnostics()
+
+# Save the diagnostic plots as an image
+png(
+  filename = "rms_adjusted_model_diagnostics.png",
+  width = 15,
+  height = 9,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+draw_rms_diagnostics()
+dev.off()
+
+# Supplement the Q–Q plot with a residual normality test
+shapiro.test(residuals(model_rms))
+
+# List participant-level influence measures
+rms_influence <- tibble(
+  donorid = rownames(model.frame(model_rms)),
+  studentised_residual = unname(rstudent(model_rms)),
+  leverage = unname(hatvalues(model_rms)),
+  cooks_distance = unname(cooks.distance(model_rms))
+) |>
+  arrange(desc(cooks_distance))
+
+print(rms_influence, n = Inf, width = Inf)
+```
+
+Diagnostic checks broadly supported the adjusted RMS model. The age relationship appeared approximately linear, and residual plots showed no clear evidence of non-constant variance. The residual Q–Q plot and Shapiro–Wilk test (*W* = 0.982, *p* = 0.974) were consistent with approximate normality. Participants d204 and d216 had relatively large studentised residuals, with d204 showing the greatest Cook’s distance (0.293). Given the small sample size, these findings were interpreted cautiously. Sensitivity analyses were therefore warranted to assess whether these participants materially affected the estimated treatment difference. All participants were retained in the main analysis.
+
+#### Results of Multiple Linear Regression Model (RMS):
+
+```{r}
+# View adjusted effects of treatment, exercise and age
+summary(model_rms)
+
+# Obtain 95% confidence intervals for the coefficients
+confint(model_rms)
+
+# Extract model coefficients and 95% confidence intervals
+coefficients <- summary(model_rms)$coefficients
+confidence_intervals <- confint(model_rms)
+
+# Create a results table, excluding the intercept
+rms_results <- tibble(
+  Predictor = rownames(coefficients),
+  `Estimate (degrees)` = coefficients[, "Estimate"],
+  `95% CI lower` = confidence_intervals[, 1],
+  `95% CI upper` = confidence_intervals[, 2],
+  `p-value` = coefficients[, "Pr(>|t|)"]
+) |>
+  filter(Predictor != "(Intercept)") |>
+  mutate(
+    Predictor = recode(
+      Predictor,
+      "treatmentNew compound" = "New compound vs L-DOPA",
+      "exercisey" = "Exercise vs no exercise",
+      "age" = "Age (per additional year)"
+    ),
+    across(
+      c(`Estimate (degrees)`, `95% CI lower`, `95% CI upper`),
+      ~ round(.x, 2)
+    ),
+    `p-value` = if_else(
+      `p-value` < 0.001,
+      "<0.001",
+      sprintf("%.3f", `p-value`)
+    )
+  )
+
+# Display the table
+print(rms_results, n = Inf, width = Inf)
+
+# Optional: open in RStudio's data viewer
+# View(rms_results)
+```
+
+Multiple linear regression showed that age and exercise were also associated with RMS gait deviation. After adjustment for treatment and age, exercise was associated with a 3.56° lower mean RMS (95% CI: −4.81° to −2.30°; p \< 0.001). Each additional year of age was associated with a 0.30° increase in mean RMS (95% CI: 0.21° to 0.38°; p \< 0.001). After accounting for both factors, participants receiving the new compound had a mean RMS 3.29° lower than those receiving L-DOPA (95% CI: −4.54° to −2.03°; p \< 0.001), indicating less overall deviation from upright.
+
+However, a sensitivity check still needs to be applied to assess the influence of extreme participant observations.
+
+#### Sensitivity Check RMS:
+
+```{r}
+# Refit without d204
+model_without_d204 <- update(
+  model_rms,
+  data = filter(rms_model_data, donorid != "d204")
+)
+
+# Refit without d216
+model_without_d216 <- update(
+  model_rms,
+  data = filter(rms_model_data, donorid != "d216")
+)
+
+# Extract the adjusted treatment effect from each model
+extract_treatment <- function(model, analysis) {
+  term <- "treatmentNew compound"
+  coefficients <- summary(model)$coefficients
+  ci <- confint(model, parm = term)
+  
+  tibble(
+    Analysis = analysis,
+    Estimate = coefficients[term, "Estimate"],
+    CI_lower = ci[1, 1],
+    CI_upper = ci[1, 2],
+    p_value = coefficients[term, "Pr(>|t|)"]
+  )
+}
+
+# Compare the full and sensitivity models
+rms_sensitivity_results <- bind_rows(
+  extract_treatment(model_rms, "All participants"),
+  extract_treatment(model_without_d204, "Without d204"),
+  extract_treatment(model_without_d216, "Without d216")
+) |>
+  mutate(
+    across(c(Estimate, CI_lower, CI_upper), ~ round(.x, 2)),
+    p_value = if_else(
+      p_value < 0.001,
+      "<0.001",
+      sprintf("%.3f", p_value)
+    )
+  )
+
+print(rms_sensitivity_results, n = Inf, width = Inf)
+```
+
+All p-values remained \<0.001, and all confidence intervals exlcuded 0. Therefore sensitivity analyses showed that excluding d204 or d216 individually did not materially change the adjusted treatment difference. The new compound remained associated with lower RMS than L-DOPA after accounting for exercise and age. This supports the robustness of the treatment finding to either participant’s individual influence; all participants were retained in the primary analysis.
+
+#### Interaction Model: 
+
+To further assess the influence of age and exercise on the gait data between the treatment groups, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
+
+```{r}
+# Add all pairwise interactions, retaining the main effects
+model_rms_interaction <- update(
+  model_rms,
+  . ~ (treatment + exercise + age)^2
+)
+
+# Joint test: do the three interactions improve the additive model?
+anova(model_rms, model_rms_interaction)
+
+# Examine individual interaction estimates and p-values
+summary(model_rms_interaction)
+
+# Obtain 95% confidence intervals
+confint(model_rms_interaction)
+
+# Diagnostic checks before assessing model
+# Review residual normality, variance, patterns and influence
+local({
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(mfrow = c(2, 2))
+  
+  plot(
+    model_rms_interaction,
+    which = c(1, 2, 3, 5),
+    ask = FALSE
+  )
+})
+```
+
+Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMS model compared with the additive model (*F*(3, 9) = 0.328, *p* = 0.806). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained as the main analysis. Given the small sample size and wide interaction confidence intervals, these results indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
+
+#### Multiple Linear Regression (RMSSD):
+
+```{r}
+# Prepare participant-level RMSSD data
+rmssd_model_data <- participant_smoothness |>
+  mutate(
+    treatment = relevel(
+      factor(treatment),
+      ref = "L-DOPA control"
+    ),
+    exercise = relevel(
+      factor(exercise),
+      ref = "n"
+    )
+  ) |>
+  as.data.frame()
+
+# Label diagnostic observations with donor IDs
+rownames(rmssd_model_data) <- rmssd_model_data$donorid
+
+# Fit the model, adjusting for treatment, exercise and age
+model_rmssd <- lm(
+  rmssd_gait ~ treatment + exercise + age,
+  data = rmssd_model_data,
+  na.action = na.fail
+)
+
+# Function to draw diagnostic plots
+draw_rmssd_diagnostics <- function() {
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(
+    mfrow = c(2, 3),
+    mar = c(4, 4, 3, 1)
+  )
+  
+  # Linearity of age: black fitted line and blue smoothed curve
+  termplot(
+    model_rmssd,
+    terms = "age",
+    partial.resid = TRUE,
+    smooth = panel.smooth,
+    col.term = "black",
+    col.smth = "#0072B2",
+    col.res = "grey40",
+    pch = 16,
+    main = "Linearity: age",
+    xlabs = "Age (years)",
+    ylabs = "Partial residuals"
+  )
+  
+  # Normality of residuals
+  plot(model_rmssd, which = 2, sub.caption = "", ask = FALSE)
+  
+  # Residual patterns and spread
+  plot(model_rmssd, which = 1, sub.caption = "", ask = FALSE)
+  
+  # Constant residual variance
+  plot(model_rmssd, which = 3, sub.caption = "", ask = FALSE)
+  
+  # Residual size, leverage and Cook's distance contours
+  plot(model_rmssd, which = 5, sub.caption = "", ask = FALSE)
+  
+  # Leave the final panel blank
+  plot.new()
+}
+
+# Display the diagnostic plots
+draw_rmssd_diagnostics()
+
+# Save the diagnostic plots
+png(
+  filename = "rmssd_adjusted_model_diagnostics.png",
+  width = 15,
+  height = 9,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+draw_rmssd_diagnostics()
+dev.off()
+
+# Supplement the Q–Q plot with a residual normality test
+shapiro.test(residuals(model_rmssd))
+
+# List participant-level influence measures
+rmssd_influence <- tibble(
+  donorid = rownames(model.frame(model_rmssd)),
+  studentised_residual = unname(rstudent(model_rmssd)),
+  leverage = unname(hatvalues(model_rmssd)),
+  cooks_distance = unname(cooks.distance(model_rmssd))
+) |>
+  arrange(desc(cooks_distance))
+
+print(rmssd_influence, n = Inf, width = Inf)
+```
+
+Diagnostic checks broadly supported the adjusted RMSSD model. The age relationship appeared approximately linear, and residual plots showed no clear evidence of non-constant variance. The Q–Q plot and Shapiro–Wilk test (*W* = 0.980, *p* = 0.967) were consistent with approximate residual normality. Participants d204 and d216 showed the greatest influence, so sensitivity analyses were planned to assess the stability of the adjusted treatment estimate. All participants were retained in the main analysis.
+
+#### Results of Multiple Linear Regression Model (RMSSD):
+
+```{r}
+# Display the adjusted RMSSD model results
+summary(model_rmssd)
+
+# Extract coefficients and 95% confidence intervals
+rmssd_coefficients <- summary(model_rmssd)$coefficients
+rmssd_ci <- confint(model_rmssd)
+
+# Create a results table excluding the intercept
+rmssd_results <- tibble(
+  Predictor = rownames(rmssd_coefficients),
+  `Estimate (degrees)` = rmssd_coefficients[, "Estimate"],
+  `95% CI lower` = rmssd_ci[, 1],
+  `95% CI upper` = rmssd_ci[, 2],
+  `p-value` = rmssd_coefficients[, "Pr(>|t|)"]
+) |>
+  filter(Predictor != "(Intercept)") |>
+  mutate(
+    Predictor = recode(
+      Predictor,
+      "treatmentNew compound" = "New compound vs L-DOPA",
+      "exercisey" = "Exercise vs no exercise",
+      "age" = "Age (per additional year)"
+    ),
+    across(
+      c(`Estimate (degrees)`, `95% CI lower`, `95% CI upper`),
+      ~ round(.x, 2)
+    ),
+    `p-value` = if_else(
+      `p-value` < 0.001,
+      "<0.001",
+      sprintf("%.3f", `p-value`)
+    )
+  )
+
+# Display all results
+print(rmssd_results, n = Inf, width = Inf)
+
+# Optional: open the table in RStudio's data viewer
+# View(rmssd_results)
+```
+
+Multiple linear regression showed that age and exercise were also associated with RMSSD gait smoothness. After adjustment for treatment and age, exercise was associated with a 4.96° lower mean RMSSD (95% CI: −6.72° to −3.2°; p \< 0.001). Each additional year of age was associated with a 0.42° increase in mean RMSSD (95% CI: 0.3° to 0.54°; p \< 0.001). After accounting for both factors, participants receiving the new compound had a mean RMSSD 4.55° lower than those receiving L-DOPA (95% CI: −6.31° to −2.27°; p \< 0.001), indicating less overall deviation from upright.
+
+However, a sensitivity check still needs to be applied to assess the influence of extreme participant observations.
+
+#### Sensitivity Check RMSSD:
+
+```{r}
+# Refit without d204
+rmssd_without_d204 <- update(
+  model_rmssd,
+  data = filter(rmssd_model_data, donorid != "d204")
+)
+
+# Refit without d216
+rmssd_without_d216 <- update(
+  model_rmssd,
+  data = filter(rmssd_model_data, donorid != "d216")
+)
+
+# Extract the adjusted treatment effect from each model
+extract_treatment <- function(model, analysis) {
+  term <- "treatmentNew compound"
+  coefficients <- summary(model)$coefficients
+  ci <- confint(model, parm = term)
+  
+  tibble(
+    Analysis = analysis,
+    Estimate = coefficients[term, "Estimate"],
+    CI_lower = ci[1, 1],
+    CI_upper = ci[1, 2],
+    p_value = coefficients[term, "Pr(>|t|)"]
+  )
+}
+
+# Compare the full model with each participant excluded separately
+rmssd_sensitivity_results <- bind_rows(
+  extract_treatment(model_rmssd, "All participants"),
+  extract_treatment(rmssd_without_d204, "Without d204"),
+  extract_treatment(rmssd_without_d216, "Without d216")
+) |>
+  mutate(
+    across(c(Estimate, CI_lower, CI_upper), ~ round(.x, 2)),
+    p_value = if_else(
+      p_value < 0.001,
+      "<0.001",
+      sprintf("%.3f", p_value)
+    )
+  )
+
+# Display the results
+print(rmssd_sensitivity_results, n = Inf, width = Inf)
+```
+
+Sensitivity analyses showed that excluding d204 or d216 individually did not materially change the adjusted treatment finding. The new compound remained associated with lower RMSSD than L-DOPA after accounting for exercise and age. This supports the robustness of the finding to either participant’s individual influence; all participants were retained in the main analysis.
+
+#### Interaction Model: 
+
+To further assess the influence of age and exercise on the gait data between the treatment groups for RMSSD, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
+
+```{r}
+# Add all pairwise interactions to the adjusted RMSSD model
+model_rmssd_interaction <- update(
+  model_rmssd,
+  . ~ (treatment + exercise + age)^2
+)
+
+# Test whether the interactions collectively improve model fit
+anova(model_rmssd, model_rmssd_interaction)
+
+# View individual coefficients and interaction p-values
+summary(model_rmssd_interaction)
+
+# Obtain 95% confidence intervals
+confint(model_rmssd_interaction)
+
+# Check the interaction model's residual diagnostics
+local({
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(mfrow = c(2, 2))
+  
+  plot(
+    model_rmssd_interaction,
+    which = c(1, 2, 3, 5),
+    ask = FALSE
+  )
+})
+```
+
+Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMSSD model compared with the additive model (*F*(3, 9) = 0.281, *p* = 0.838). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained for the main analysis. Given the small sample size and wide confidence intervals, these findings indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
+
+#### Answer to Question 3: 
+
+Through this statistical analysis it is observed that both age and exercise regime affect the gait balance and smoothness for participants. This means that the greatest chance of improving gait balance/smoothness is in a combination of both new compound and exercise. Although, the degenerative impact of the disease is shown in the continued decrease in gait balance/smoothness with age. Further longitudinal studies will need to investigate the long-term impact of both new compound and exercise combination in participants over time as they continue to age and develop Parkinson's Disease pathology.
+
+After observing the significant affects of all three variables on the outcome of gait balance/smoothness, it was further checked whether there were interaction differences between these variables. Asking whether the effect of new compound was altered with the additional variables of exercise or age. However, there was no significant changes. Meaning that the effect of the new compound had a constant improvement to gait balance/smoothness outside of the effects of exercise regime or age. Therapeutically, this means that this new compound may be universally beneficial to people with Parkinson's Disease regardless of whether they engage in exercise and how early they start treatment.
+
+#### **Bring it all together questions**
+
+1.  Using their unique donor IDs, how many patients appear across all four arms of the study?
+
+2.  Do any variables other than gene expression distinguish the RNA-seq cases from controls? (Hint: try colouring points on your MDS plot by other information you have about the donors, from the other datasets)
+
+3. Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
 
 ```{r}
 # %^&* Use hits_info already created in the drug-screen report.
@@ -677,3 +3353,7 @@ knitr::kable(
 Two targets from 4 significant hit compounds were differentially expressed between PD cases and healthy controls. Cmpd_5177 targets COX7A1 were downregulated in PD, including cmpd_5041 targets FXN. However, cmpd_6281 targeting COX6A2 was not significant, and COX7A2 was absent from the RNA-seq count. Both significantly expressed targets were annotated to the oxidative phosphorylation family in GO datasets with GO id: 0006119.
 
 Both of the expressed data associated with mitochondrial dysfunnction which is consistent with PD dysfunction. RNA sequencing data do not measure protein activity directly or mitochondrial respiration, and the drug screen used neurons isolated from a single donor under MMP+ stress. Validation in PD-derived neurons, target engagement, and mitochondrial-function measurement would be necessary to test the proposed mechanism.
+
+4.  Is there any relationship between the PRS and gait of patients in the clinical trial?
+
+5.  In a paragraph, summarise your findings and suggest directions for future research.
