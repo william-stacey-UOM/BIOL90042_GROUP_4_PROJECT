@@ -222,33 +222,6 @@ hits
 Four of the 192 test compounds significantly increased neuronal viability compared with their matched controls after Benjamini-Hochberg correction (adjusted p \< 0.05): cmpd_6281, cmpd_5177, cmpd_7929 and cmpd_5041. Their mean luminescence was 694–710 RLU compared with 488–518 RLU for the controls, an increase of about 190–221 RLU (37–45%). Adjusted p-values ranged from 0.0004 to 0.026.
 
 ```{r}
-<<<<<<< HEAD
-
-# Are the 16 bright wells exactly the wells of the 4 hit compounds?
-plate_long |>
-  filter(rlu > 650) |>
-  count(pair_id)     # expect the 4 hit compounds, 4 wells each
-```
-
-These four compounds account for the 16 very bright wells (RLU \> 650) seen on the plate heatmap, with all four replicate wells of each compound elevated, which suggests a consistent effect rather than isolated outlier wells.
-
-Table for summarize
-
-```{r}
-#| label: tbl-hits
-# Show the hits as a table
-hits |>
-  mutate(test_mean = round(test_mean, 1),
-         ctrl_mean = round(ctrl_mean, 1),
-         diff      = round(diff, 1),
-         p_value   = format(p_value, digits = 3),   # keep small numbers readable
-         p_adj     = format(p_adj, digits = 3)) |>
-  knitr::kable(caption = "Compounds that significantly increased viability (BH-adjusted p < 0.05)")
-```
-
-```{r}
-=======
->>>>>>> 734c40b8c21670b6347c234ac8818cfa48bb3af4
 # The 4 wells of each hit compound vs its control
 p_hits <- plate_long |>
   filter(pair_id %in% hits$pair_id) |>
@@ -275,7 +248,6 @@ hits_info <- hits |>
   left_join(compound_dict, by = join_by(pair_id == id))
 
 hits_info
-
 
 hits_info |>
   dplyr::select(pair_id, hgnc_symbol, target_enzyme, action, diff, p_adj) |>

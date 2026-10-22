@@ -3,3 +3,677 @@ title: "Final_Code"
 format: html
 ---
 
+```{r}
+# Density plot gives a good perspective on the shift that status has with polygenic risk status
+ggplot(data = prs_scores, aes(x = PRS, colour = status))+
+  geom_density() +
+  labs(
+    x = "Polygenic Risk Score",
+    y = "Density",
+    colour = "Status",
+    title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
+  theme_minimal ()
+
+# Boxplot gives an easy visualisation for the basic 5 figure summary
+ggplot(data = prs_scores, aes(x = PRS, y = status))+
+  geom_boxplot() +
+  labs(
+    x = "Polygenic Risk Score",
+    y = "Case/Control Status",
+    title = "Polygenic Risk Distribution For Parkinsons Patients and Controls") +
+  theme_minimal ()
+
+# Comparison of 5 figure summarry
+prs_scores |> 
+  group_by (status) |> 
+  summarise(
+    n=n(),
+    mean = mean(PRS),
+    median = median(PRS),
+    sd = sd(PRS),
+    minimum = min(PRS),
+    maximum = max(PRS))
+
+# Normal Distribution
+ggplot(data = prs_scores, aes(sample = PRS)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~status)
+
+# Test Statistic
+t.test(PRS ~ status, data = prs_scores, var.equal = TRUE)
+```
+
+## RNA Sequencing
+
+This section analyse the RNA-seq data using these dataset:
+
+- rnsaeq.Rda = DGE list
+
+- rnaseq_seq_gene_info.Rda = gene names and gene ontology data
+
+  The dataset comparing PD neurons with induced pluripotent stem cell (iPSCs) from 8 patients with Parkinson's Disease (PD) and 8 healthy patients. the cells were differentiated into dopaminergic neurons then the RNA were sequenced.
+
+## Running Code
+
+```{r}
+# loading all the library
+library(tidyverse)
+library(edgeR)
+library(limma)
+library(dplyr)
+library(ggplot2)
+library(RNAseq123)
+library(pheatmap)
+library(ggrepel)
+```
+
+**Step 1: Loads our data**
+
+```{r}
+#assign the data to a variable
+gene_info <- load("data/rnaseq_gene_info.Rda") 
+load("data/rnaseq.Rda") # This is the dge list that contains all of our informations
+# Find group of the samples
+dge$samples$group
+# change the entrez_gename_key as character
+genes_key <- entrez_genename_key %>% 
+  mutate(entrezid = as.character(entrezid))
+```
+
+Here we have 2 levels: control and case group compromise of both 8 patients
+
+**Step 2: Filtering the data**
+
+```{r}
+# Filtering our data
+# keep is our logical vector of which rows to keep
+keep <- filterByExpr(dge)
+
+# use the table() function to see how many genes we
+# will keep (TRUE) and how many we will filter out (FALSE)
+table(keep)
+# proportions gives us the proportions rather than
+# just the counts
+proportions(table(keep))
+
+#performing filter on our dge
+dge <- dge[keep, , keep.lib.sizes = FALSE]
+
+
+# check the dimensions of the count matrix to see they
+# have reduced
+dim(dge$counts)
+```
+
+We started with 10096 gene and now after filtering it reduced to 9846 genes. It means 250 (2.48 %) genes filtered out.
+
+**Step 3: Normalisations**
+
+```{r}
+# Normalise our data
+dge <- normLibSizes(dge, method = "TMM") # TMM = trimmed mean of M-values
+dge$samples
+```
+
+TMM normalisations remove an extreme log fold changes and normalise it on remaining non-differentially expressed genes [@singh2024]. TMM factor range 1.016 to 1.052 in control sample, showing minimal differences in RNA compositions. While in case group ranging from 0.88-1.075, showing a quite diverse different between case sample. These adjust the compositions of the library sizes and not measures the biological variability.
+
+**Step 4: MDS Plot, visualise raw data**
+
+```{r}
+#creating MDS Plot
+plotMDS(dge, labels = dge$samples$group)
+
+
+```
+
+Each point on the MDS plot represents one patient sample. Distances between points reflect differences in gene-expression profiles: samples closer together have more similar expression profiles, whereas samples farther apart are more different. The two dimensions account for approximately 9% and 7% of the MDS variation, showing the overall structure. Most PD cases appear separated from the healthy controls, although some cases cluster close to the controls. Overall, the plot suggests that gene-expression patterns are partly consistent with disease status, but the differentiation of the case group cannot be distinguished from this plot alone.
+
+**Step 5: Linear modeling and variance modelling using voom()**
+
+```{r}
+# creating design matrix
+design <- model.matrix(~ 0 + group, data = dge$samples) 
+# rename the columns of the design matrix to be just 'Control' or 'Case'. Instead of 'groupControl'
+  colnames(design) <- c("Control", "Case")
+design
+
+# make the contrast matrix
+contr_matrix <- makeContrasts(
+  # our three pairwise comparisons
+  CasevsControl = "Case - Control",
+  levels = design
+)
+
+contr_matrix
+# Creating variance modelling by voom
+v <- voom(dge, design, plot = TRUE)
+# fit linear model on voom output
+vfit <- lmFit(v)
+
+# check coefficients
+head(vfit$coefficients)
+#compare it to the contrast matrix and find the coefficients
+vfit <- contrasts.fit(vfit, contrasts = contr_matrix)
+head(vfit$coefficients)
+# doing the statistical testing
+efit <- eBayes(vfit)
+efit
+```
+
+This plot shows a relationship between average gene expression and residual variability. Each black point represents a gene. The graph showed that higher count genes have less variability compared to lower count gene. This accounts for the mean-variance relationship between the samples, but it still does not distinguish DE genes nor statistical assumptions.
+
+```{r}
+#statistical testing to identify significant genes
+dt <- decideTests(efit)
+summary(dt)
+top <- topTable(efit, coef = "CasevsControl", n = Inf)
+
+# I want to convert top dataframe to tibble and combine genes_key variable to the top_tibble.
+top_tibble <- as_tibble(top)
+top_tibble <- top_tibble %>% 
+  na.omit() %>% 
+  dplyr::mutate(genes = as.character(genes)) %>% 
+  dplyr::rename(entrezid = genes) %>% 
+  left_join(genes_key, by = "entrezid")
+
+top_tibble # Now we have a top_tibble dataframe that have gene names on each 
+```
+
+We classified the genes using decideTests() with Benjamini-Hochberg (BH) adjustment to account for multiple genes and an adjusted p-value threshold of 0.05. The adjustment using BH can control false positives among the results. There's other methods that can be used to normalise the data, which is Bonferroni correction however it can reduce the number of sets and introduce a false negative or type II error[@armstrong2014].
+
+TopTable () was used to get the numerical results from statistical testing comparing the control group to the case group, providing the p-value and adjusted p-value. We found 23 significant genes, with missing information on which genes are up-regulated or down-regulated. In the top_tibble, we found a missing gene name with Entrez ID "124907837". ncbi.nlm.nih.gov shown that it match SULT1A3 encodes sulfotransferase family 1A member 3 and responsible for catalyzing the sulfation reaction on dopamine to dopamine-sulfate. This reaction results in a depletion of dopamine concentration and a clear biomarker for Parkinson's Disease [@chen2021; ].
+
+```{r}
+# updating top_tibble dataframe with a new name 
+top_tibble_updated <- top_tibble %>%
+  mutate(
+    entrezid = as.character(entrezid),
+    gene_name =ifelse(
+      entrezid == "124907837",
+      "SULT1A3",
+      gene_name
+    ), # add description 
+    entrezid = as.character(entrezid),
+    description =ifelse(
+      entrezid == "124907837",
+      "sulfotransferase family 1A member 3",
+      description
+    )
+  )
+top_tibble_updated
+  
+```
+
+# Answering the questions
+
+1.  **Which genes are differentially expressed between PD cases and healthy controls? Please also visualise your DE results with appropriate plot(s)**
+
+```{r}
+# Creating volcano plot variable
+vol_plot_data <- tibble(
+  entrezid = as.character(rownames(efit$coefficients)),
+  logFC = efit$coefficients[, "CasevsControl"],
+  AvgExpr = efit$Amean,
+  status = factor(as.numeric(dt[, "CasevsControl"])),
+  gene = efit$genes$SYMBOL,
+  p_value = efit$p.value[, "CasevsControl"]) %>% 
+  left_join(top_tibble_updated %>%
+              transmute(
+                entrezid = as.character(entrezid),
+                gene_name) %>%
+              distinct(), by ="entrezid"
+              ) %>% left_join(
+                top_tibble %>%
+                  dplyr::select(entrezid, adj.P.Val),
+                by = "entrezid"
+              )
+# Edditing our vol_plot_data tibble so they can be assigned to a new factor 
+vol_plot_data_fct <- vol_plot_data %>%
+  mutate(
+    # replace status with a new factor
+    status = factor(
+      status,
+      # levels (order is not DE, down, up)
+      levels = c(0, -1, 1),
+      # labels for the numbers so they are readble
+      labels = c("Not DE", "Downregulated", "Upregulated")
+    )
+  )
+#assigning the colour for each up, down, and not significant
+scale_cols <- c(
+  "Not DE" = "grey",
+  "Downregulated" = "blue",
+  "Upregulated" = "red"
+)
+
+```
+
+```{r}
+#creating a volcano plot
+vol_plot_image<- ggplot(
+  vol_plot_data_fct, 
+  aes(x = logFC, y = -log10(pmax(adj.P.Val, 1e-300)), col = status)) +
+  geom_point(
+    data = vol_plot_data_fct %>% filter(status == "Not DE"),
+    size = 0.1
+  ) +
+  geom_point(data = vol_plot_data_fct %>% 
+               filter(status != "Not DE"), size = 2) + 
+  geom_vline(xintercept = c(-1,1), color = "black", linetype = "dashed") + 
+  geom_hline(yintercept = -log10(0.05), color ="black", linetype = "dashed") +
+  geom_text_repel(
+    data = vol_plot_data_fct %>%
+      filter(status != "Not DE"),
+    aes(label = gene_name, ),
+    max.overlaps = Inf,
+    show.legend = FALSE) + 
+  scale_colour_manual(values = scale_cols) +
+  theme_classic() +
+  labs(title = "Volcano plot for Case vs Control",
+       x = "log2 fold change (Parkinson's Disease case/ Control )",
+       y = "-log10(adjusted p-value)")
+vol_plot_image
+ggsave("result/rnaseq_PD volcano.png", width = 23, height = 17, units = "cm")
+
+```
+
+The volcano plot compares gene expression between PD case and healthy control samples. The x-axis shows log2 fold change between control relative to case, while the y-axis shows - log10 of the adjusted p-value. Higher points are more significant compared to lower points. Genes that have higher expression on both down-regulated or up-regulated has the positions more to the left or right, respectively.
+
+Osverall, 14 genes have higher expression in PD while 9 have lower expression in PD. MAOB shows the strongest gene expression and statistical evidence. PRKAA2 has the strongest evidence among genes higher in PD, while ULK2 has the strongest expression. Among down-regulated genes, PRKAA2 has the strongest statistical evidence, while RNF166 has the highest expression difference. However, these sample shows a contrary evidence against the literature as ULK2 is supposed to be among the down-regulated genes Howe[@wang2026]. Furthermore, MAOB is a gene responsible in producing MPP+ which can cause a cell death to dopamine producing cell which caused Parkinson's disease [@tan2022]. While some other gene such as RNF166 that responsible in cell death does belong to up-regulated genes [@oh2020].
+
+2.  Which gene ontology families do the DE genes belong to?
+
+```{r}
+de_go_summary <- top_tibble_updated %>%
+  # Define significance using adjusted p-values.
+  filter(adj.P.Val < 0.05) %>%
+  mutate(entrezid = as.character(entrezid)) %>%
+  # Add GO categories by matching Entrez IDs.Transmute function act just like select function creating a new dataframe containing the specified 
+  inner_join(
+    gene_ontology %>%
+      transmute(
+        entrezid = as.character(entrezgene_id),
+        go_id,
+        category = desc
+      ) %>%
+      distinct(),
+    by = "entrezid"
+  ) %>%
+  # Count each gene once within each GO category.
+  dplyr::distinct(go_id, category, entrezid, .keep_all = TRUE) %>%
+  # Summarise the number and names of DE genes in each category.
+  group_by(go_id, category) %>%
+  summarise(
+    de_genes = n_distinct(entrezid),
+    upregulated_in_pd = sum(logFC > 0),
+    downregulated_in_pd = sum(logFC < 0),
+    gene_names = paste(sort(unique(gene_name)), collapse = ","),
+.groups ="drop"
+  ) %>%
+  arrange(desc(de_genes))
+
+de_go_summary_table <- knitr::kable(de_go_summary)
+de_go_summary_table
+
+# downloading packages to write in excel file
+install.packages("writexl")
+writexl::write_xlsx(
+  de_go_summary,
+  "result/rna_Q2_gene_ontology.xlsx"
+)
+
+```
+
+These tables summarise DE genes that are up-regulated and down-regulated and group them based on their ontology-associated group. It shows that ATG12, ATG3, LRSAM1, PARK7, PRKAA1, PRKAA2, RAB1A, RNF166, RNF41, STK11, TRIM5, ULK2, VPS18, and WDR24 belong to autophagy associated genes. These have higher expression in PD cases. Seven dopamine-category genes LRTOMT, MAOA, MAOB, MOXD1, PDE1B, SULT1A1, and SULT1A3. These have lower expression in PD. While there are only two oxidative phosphorylation members, COX7A1 and FXN that also have lower expression in PD.
+
+3.  Is the clustering of samples by gene expression consistent with their disease status as cases and controls?
+
+```{r}
+# Find top 30 most significant genes to label
+top_de_genes <- vol_plot_data_fct %>%
+  slice_min(n = 30, p_value)
+# filter the count matrix to find just those genes
+top_gene_expr <- cpm(dge, log = TRUE)[as.character(top_de_genes$entrezid), ]
+rownames(top_gene_expr) <- top_de_genes$gene_name
+# annotation information for the heatmap
+sample_anno <- dge$samples %>%
+  dplyr::select(group)
+
+# creating your heatmap
+heatmap <- pheatmap(
+  top_gene_expr,
+  color = colorRampPalette(c("blue", "white", "red"))(100),
+  scale = "row",
+  annotation_col = sample_anno,
+  border_color = NA,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = TRUE,
+  show_colnames = TRUE,
+  fontsize_row = 6,
+  filename = "result/rna_seq_heatmap.png",
+  width = 8,    # inches
+  height = 10
+)
+
+#save your heatmap by right click on your plot 
+```
+
+Red indicates expression above the mean across samples, and blue indicates expression below the mean across samples. The differences in color intensity represent row z-scores, comparing samples within each gene. Green and pink represent the control and PD groups; dendrograms show groups with similar profiles.
+
+Cases 1-5 show a clear, distinct grouping. Generally, have higher expression of autophagy-associated genes such as PRKAA2, ATG12, and ULK2, and lower expression of MAOB, MAOA, and COX7A1. While cases 6-8 cluster with controls. The clustering is partly consistent with disease status, but does not have a clear separation of cases from controls.
+
+There are 30 selected genes, including 23 significant genes and 7 non-significant genes. The heatmap showed disease-associated patterns and not independent validations.
+
+# **Drug Screening**
+
+**step0 : load data**
+
+```{r}
+library(tidyverse)
+load("data/drugscreen.Rda")
+
+```
+
+**step 1: tidy up the data**
+
+```{r}
+meta_long <- plate_meta |>
+  pivot_longer(-plate_row, names_to = "col", values_to = "compound")
+
+rlu_long <- plate1 |>
+  pivot_longer(-plate_row, names_to = "col", values_to = "rlu")
+
+# combine name and luminance value
+plate_long <- left_join(meta_long, rlu_long, by = c("plate_row", "col")) |>
+  mutate(row_num = parse_number(plate_row),
+         col_num = parse_number(col))
+
+nrow(plate_long)   
+head(plate_long)
+```
+
+**step 2:** Inspect how compound names are written
+
+```{r}
+
+# 1. Compound names on the plate (first 20)
+#    Each name ends with "_test" or "_ctrl"
+unique(plate_long$compound) |> head(20)
+
+# 2. Compound IDs in compound_dict (first 20)
+head(compound_dict$id, 20)
+
+# 3. Count how many unique names end in "_test" and "_ctrl"
+unique(plate_long$compound) |>
+  str_extract("(test|ctrl)$") |>
+  table()
+```
+
+**step 3:** split out pair ID and type
+
+```{r}
+
+# Split the compound name into pair ID and type
+plate_long <- plate_long |>
+  mutate(
+    # remove "_test" or "_ctrl" at the end
+    pair_id = str_remove(compound, "_(test|ctrl)$"),
+    # keep only "test" or "ctrl" at the end
+    type = str_extract(compound, "(test|ctrl)$")
+  )
+
+# Check 1: how many wells per type? 
+count(plate_long, type)
+
+# Check 2: how many pairs? 
+n_distinct(plate_long$pair_id)
+
+# Check 3: every pair 
+count(plate_long, pair_id, type) |> count(n)
+
+# Check 4: do all pair IDs exist in compound_dict? 
+all(plate_long$pair_id %in% compound_dict$id)
+```
+
+## **Q1-Heatmap of luminescence across the plate**
+
+1.  create a heatmap
+
+```{r}
+# Q1: Heatmap of luminescence across the plate
+p_heatmap <- ggplot(plate_long, aes(x = col_num, y = row_num, fill = rlu)) +
+  geom_tile() +
+  scale_y_reverse() +
+  scale_fill_viridis_c() +
+  coord_equal() +
+  labs(title = "Luminescence across the plate",
+       x = "Column", y = "Row", fill = "RLU")
+p_heatmap
+ggsave("result/drug_q1_heatmap.png", p_heatmap, width = 8, height = 5, dpi = 300)
+```
+
+2.  filter the bright wells (more than 3 SD above the control mean)
+
+```{r}
+# Define "bright" as more than 3 SDs above the mean of the control wells
+# (control wells have no known activity, so they show the normal noise level)
+ctrl_rlu <- plate_long |>
+  filter(type == "ctrl") |>
+  pull(rlu)
+
+threshold <- mean(ctrl_rlu) + 3 * sd(ctrl_rlu)
+threshold
+
+# Which type are the bright wells?
+plate_long |>
+  filter(rlu > threshold) |>
+  summarise(n = n(), .by = type)
+```
+
+3.  Numeric check
+
+```{r}
+# Compare outer wells vs inner wells (edge effect check)
+# Median is used because a few very bright wells would inflate the mean
+plate_long |>
+  mutate(position = if_else(row_num %in% c(1, 32) | col_num %in% c(1, 48),
+                            "edge", "inner")) |>
+  group_by(position) |>
+  summarise(n = n(), median_rlu = median(rlu), sd_rlu = sd(rlu))
+
+# Range of row medians and column medians (gradient / stripe check)
+plate_long |> group_by(row_num) |> summarise(m = median(rlu)) |> summarise(min = min(m), max = max(m))
+plate_long |> group_by(col_num) |> summarise(m = median(rlu)) |> summarise(min = min(m), max = max(m))
+
+```
+
+4.  which wells are test vs control
+
+```{r}
+# which wells are test vs control?
+
+p_layout <- ggplot(plate_long, aes(x = col_num, y = row_num, fill = type)) +
+  geom_tile(colour = "white", linewidth = 0.2) +   
+  scale_y_reverse() +
+  scale_fill_manual(
+    values = c(test = "#D6A5A0", ctrl = "#6B8CAE"), 
+    labels = c(test = "Test compound", ctrl = "Control") 
+  ) +
+  coord_equal() +
+  labs(title = "Plate layout: test vs control wells",
+       x = "Column", y = "Row", fill = NULL) +
+  theme_minimal()
+
+p_layout
+ggsave("result/drug_q1_layout.png", p_layout, width = 8, height = 5, dpi = 300)
+
+```
+
+5.  Analysis for Q1
+
+To check for spatial patterns, I plotted the luminescence (RLU) of each of the 1,536 wells at its physical position using geom_tile(). Luminescence was broadly uniform, with most wells between approximately 450 and 550 RLU. There was no evidence of an edge effect: the median RLU of the 156 outer wells (499.5) was virtually identical to that of the 1,380 inner wells (499.0). Row medians ranged from 490.5 to 507.5 and column medians from 485 to 511.5, a spread small relative to the well-to-well standard deviation (32.9 RLU), so there was no evidence of row, column or gradient effects. Eighteen wells had luminescence more than 3 standard deviations above the mean of the control wells (\> 577 RLU). All 18 contained test compounds and none contained a control compound, and they were scattered across the plate rather than clustered. This is consistent with compound-specific effects rather than a positional artefact, and is tested formally in Q2. I therefore did not apply a plate-position correction.
+
+## **Q2: Which compounds are statistically significantly associated with increased neuronal viability after MPP exposure? Ensure that you check your assumptions.**
+
+For each pair, compare the 4 test wells against the 4 control wells. That is 192 tests, so I corrected for multiple testing.
+
+1.  Check assumptions
+
+```{r}
+# Residual = each well minus the mean of its own group (same pair, same type).
+# This removes differences between compounds and leaves only well-to-well variation.
+resid_df <- plate_long |>
+  mutate(resid = rlu - mean(rlu), .by = c(pair_id, type))
+
+# Normality: QQ plot 
+p_qq <- ggplot(resid_df, aes(sample = resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ plot of residuals",
+       x = "Theoretical quantiles", y = "Sample quantiles")
+
+p_qq
+ggsave("result/drug_q2_qqplot.png", p_qq, width = 6, height = 5, dpi = 300)
+
+# Normality: Shapiro-Wilk test (p > 0.05 = no evidence against normality)
+resid_df |> pull(resid) |> shapiro.test()
+
+# Equal variance: compare the spread of test and control wells with a boxplot
+p_resid <- ggplot(resid_df, aes(x = type, y = resid)) +
+  geom_boxplot() +
+  labs(title = "Spread of residuals: test vs control",
+       x = "Well type", y = "Residual (RLU)")
+p_resid
+ggsave("result/drug_q2_residual_boxplot.png", p_resid, width = 6, height = 5, dpi = 300)
+
+# Spread as numbers: SD within each group, then the median SD per type
+plate_long |>
+  summarise(sd = sd(rlu), .by = c(pair_id, type)) |>
+  summarise(median_sd = median(sd), .by = type)
+```
+
+Four wells per group are too few to check normality for each compound separately, so I subtracted each group's mean from its wells and checked the pooled residuals. The QQ plot followed the theoretical line with only slight deviations in the tails, and the Shapiro-Wilk test gave no evidence against normality (p = 0.26). The boxplot and group SDs showed a similar spread for test and control wells (median SD 21.5 vs 23.6 RLU). Each well is a separate replicate, and Q1 showed no positional pattern in luminescence, so I treated the wells as independent observations.
+
+2.  Run the test
+
+I compared each test compound with its matched control using a Welch t-test, which does not assume equal variances. A Wilcoxon rank-sum test was not used: with four wells per group, its smallest possible two-sided p-value is about 0.029, which cannot stay significant after correcting for 192 tests. Because I ran 192 tests, p-values were adjusted with the Benjamini-Hochberg method, which controls the false discovery rate.
+
+```{r}
+# One Welch t-test per pair (test wells vs control wells)
+results <- plate_long |>
+  summarise(
+    test_mean = mean(rlu[type == "test"]),
+    ctrl_mean = mean(rlu[type == "ctrl"]),
+    p_value   = t.test(rlu[type == "test"], rlu[type == "ctrl"])$p.value,
+    .by = pair_id
+  ) |>
+  mutate(diff  = test_mean - ctrl_mean,                # positive = test higher
+         p_adj = p.adjust(p_value, method = "BH"))     # correct for 192 tests
+
+# Hits: significant after correction AND higher than control
+hits <- results |>
+  filter(p_adj < 0.05, diff > 0) |>
+  arrange(p_adj)
+
+nrow(hits)
+hits
+```
+
+Four of the 192 test compounds significantly increased neuronal viability compared with their matched controls after Benjamini-Hochberg correction (adjusted p \< 0.05): cmpd_6281, cmpd_5177, cmpd_7929 and cmpd_5041. Their mean luminescence was 694–710 RLU compared with 488–518 RLU for the controls, an increase of about 190–221 RLU (37–45%). Adjusted p-values ranged from 0.0004 to 0.026.
+
+```{r}
+# The 4 wells of each hit compound vs its control
+p_hits <- plate_long |>
+  filter(pair_id %in% hits$pair_id) |>
+  ggplot(aes(x = type, y = rlu, colour = type)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.1) +                  # show each well 
+  facet_wrap(~ pair_id, nrow = 1) +
+  scale_colour_manual(values = c(test = "#D6A5A0", ctrl = "#6B8CAE")) +
+  labs(title = "Hit compounds vs matched controls",
+       x = "Well type", y = "Luminescence (RLU)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p_hits
+ggsave("result/drug_q2_hits.png", p_hits, width = 9, height = 4, dpi = 300)
+```
+
+## **Q3: What are the mechanisms of action and targets of the compounds you identify in Q2?**
+
+The hit compounds were matched to compound_dict by ID to find their targets.
+
+```{r}
+hits_info <- hits |>
+  left_join(compound_dict, by = join_by(pair_id == id))
+
+hits_info
+
+hits_info |>
+  dplyr::select(pair_id, hgnc_symbol, target_enzyme, action, diff, p_adj) |>
+  mutate(diff = round(diff, 1), p_adj = format(p_adj, digits = 3)) |>
+  knitr::kable(caption = "Targets and mechanism of action of the four hit compounds")
+```
+
+All four identified compounds are agonists, and their targets are genes associated with mitochondrial function. Three of these compounds act on subunits of cytochrome c oxidase (complex IV, the final enzyme in the mitochondrial electron transport chain): cmpd_6281 (COX6A2), cmpd_5177 (COX7A1) and cmpd_7929 (COX7A2) \[1,2,3\]. The fourth, cmpd_5041, acts on FXN, which encodes frataxin, a mitochondrial protein required for the synthesis of iron-sulphur clusters, which are essential components of the respiratory chain \[4\]. As MPP causes oxidative stress and mitochondrial damage, these results suggest that enhancing mitochondrial respiratory function may protect neurons from MPP toxicity \[5\]. This is consistent with the role of mitochondrial dysfunction in Parkinson’s disease. However, as this screening utilised neurons from a single healthy donor and was conducted under MPP stress, these candidate drugs still need to be validated in patient-derived neurons.
+
+1.  National Center for Biotechnology Information (US). COX6A2 cytochrome c oxidase subunit 6A2 \[Homo sapiens (human)\]. Gene ID: 1339. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/1339>
+2.  National Center for Biotechnology Information (US). COX7A1 cytochrome c oxidase subunit 7A1 \[Homo sapiens (human)\]. Gene ID: 1346. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/1346>
+3.  National Center for Biotechnology Information (US). COX7A2 cytochrome c oxidase subunit 7A2 \[Homo sapiens (human)\]. Gene ID: 1347. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/1347>
+4.  National Center for Biotechnology Information (US). FXN frataxin \[Homo sapiens (human)\]. Gene ID: 2395. In: Gene \[Internet\]. Bethesda (MD): National Library of Medicine (US); 2004– \[cited 2026 Oct 21\]. Available from: <https://www.ncbi.nlm.nih.gov/gene/2395>
+5.  Kalivendi SV, Kotamraju S, Cunningham S, Shang T, Hillard CJ, Kalyanaraman B. 1-Methyl-4-phenylpyridinium (MPP+)-induced apoptosis and mitochondrial oxidant generation: Role of transferrin-receptor-dependent iron and hydrogen peroxide. Biochem J \[Internet\]. 2003 Apr 1 \[cited 2026 Oct 21\];371(Pt 1):151–64. Available from: <https://pubmed.ncbi.nlm.nih.gov/12523938/>
+
+**Bring it all together questions** 4. Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
+
+```{r}
+# %^&* Use hits_info already created in the drug-screen report.
+# Match its target symbols to gene names in the RNA-seq results.
+drug_rna_go_overlap <- hits_info %>%
+  dplyr::select(pair_id, hgnc_symbol, action) %>%
+  left_join(
+top_tibble_updated %>%
+  transmute(
+    gene_name,
+    entrezid = as.character(entrezid),
+    logFC,
+    adj.P.Val
+  ),
+by = c("hgnc_symbol" = "gene_name")
+  ) %>%
+  # Keep every hit target and classify its RNA-seq result.
+  # Positive logFC means higher in PD for Case - Control.
+  mutate(
+RNA_result = case_when(
+  is.na(entrezid) ~ "Not matched in RNA-seq results",
+  adj.P.Val < 0.05 & logFC > 0 ~ "Higher in PD",
+  adj.P.Val < 0.05 & logFC < 0 ~ "Lower in PD",
+  TRUE ~ "Not DE"
+)
+  ) %>%
+  # Add GO terms using the matched Entrez IDs.
+  left_join(
+gene_ontology %>%
+  transmute(
+    entrezid = as.character(entrezgene_id),
+    go_id,
+    GO_category = desc
+  ) %>%
+  distinct(),
+by = "entrezid"
+  ) %>%
+  arrange(adj.P.Val)
+
+# creating a neat table to display all hit targets, including non-significant or unmatched ones.
+knitr::kable(
+  drug_rna_go_overlap,
+  digits = 4,
+  caption = "Drug-screen hit targets: RNA-seq results and GO annotations"
+)
+
+```
+
+Two targets from 4 significant hit compounds were differentially expressed between PD cases and healthy controls. Cmpd_5177 targets COX7A1 were downregulated in PD, including cmpd_5041 targets FXN. However, cmpd_6281 targeting COX6A2 was not significant, and COX7A2 was absent from the RNA-seq count. Both significantly expressed targets were annotated to the oxidative phosphorylation family in GO datasets with GO id: 0006119.
+
+Both of the expressed data associated with mitochondrial dysfunnction which is consistent with PD dysfunction. RNA sequencing data do not measure protein activity directly or mitochondrial respiration, and the drug screen used neurons isolated from a single donor under MMP+ stress. Validation in PD-derived neurons, target engagement, and mitochondrial-function measurement would be necessary to test the proposed mechanism.
