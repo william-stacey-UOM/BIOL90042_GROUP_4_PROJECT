@@ -783,7 +783,7 @@ participant_characteristics <- gait_data |>
     Participant = participant_label,
     `Donor ID` = donorid,
     Treatment = treatment,
-    Exercise = recode(
+    Exercise = dplyr::recode(
       as.character(exercise),
       "n" = "No",
       "y" = "Yes"
