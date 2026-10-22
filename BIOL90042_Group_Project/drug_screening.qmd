@@ -107,7 +107,7 @@ plate_long |>
   count(type)            # count by test vs ctrl
 ```
 
-3.   Numeric check
+3.  Numeric check
 
 ```{r}
 # Compare outer wells vs inner wells (edge effect check)
@@ -222,7 +222,7 @@ plate_long |>
 
 These four compounds account for the 16 very bright wells (RLU \> 650) seen on the plate heatmap, with all four replicate wells of each compound elevated, which suggests a consistent effect rather than isolated outlier wells.
 
-Table for summrize
+Table for summarize
 
 ```{r}
 #| label: tbl-hits

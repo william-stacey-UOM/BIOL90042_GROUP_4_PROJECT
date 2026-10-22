@@ -8,7 +8,7 @@ editor: visual
 library(tidyverse)
 
 # Read in Datasets
-load("prs.Rda")
+load("C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/data/prs.Rda")
 
 # Pivot the data longer so that beta can be assigned to each locus for each individual
 genotypes_longer <- ca_co_genotypes |> 

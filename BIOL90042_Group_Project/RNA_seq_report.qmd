@@ -198,22 +198,20 @@ vol_plot_data_fct <- vol_plot_data %>%
       # levels (order is not DE, down, up)
       levels = c(0, -1, 1),
       # labels for the numbers so they are readble
-      labels = c("Not DE", "Down", "Up")
+      labels = c("Not DE", "Downregulated", "Upregulated")
     )
   )
 #assigning the colour for each up, down, and not significant
 scale_cols <- c(
   "Not DE" = "grey",
-  "Down" = "blue",
-  "Up" = "red"
+  "Downregulated" = "blue",
+  "Upregulated" = "red"
 )
 
 ```
 
 ```{r}
 #creating a volcano plot
-
-
 vol_plot_image<- ggplot(
   vol_plot_data_fct, 
   aes(x = logFC, y = -log10(pmax(adj.P.Val, 1e-300)), col = status)) +
@@ -241,9 +239,9 @@ ggsave("C:/r_course/BIOL90042_GROUP_4_PROJECT/BIOL90042_Group_Project/result/rna
 
 ```
 
-The volcano plot compares gene expression between PD case and healthy control samples. The x-axis shows log2 fold change between control relative to case, while the y-axis shows - log10 of the p-value. Higher points are more significant compared to lower points. Genes that have higher expression on both down-regulated or up-regulated has the positions more to the left or right, respectively.
+The volcano plot compares gene expression between PD case and healthy control samples. The x-axis shows log2 fold change between control relative to case, while the y-axis shows - log10 of the adjusted p-value. Higher points are more significant compared to lower points. Genes that have higher expression on both down-regulated or up-regulated has the positions more to the left or right, respectively.
 
-Overall, 14 genes have higher expression in PD while 9 have lower expression in PD. MAOB shows the strongest gene expression and statistical evidence. PRKAA2 has the strongest evidence among genes higher in PD, while ULK2 has the strongest expression. Among down-regulated genes, PRKAA2 has the strongest statistical evidence, while RNF166 has the highest expression difference. However, these sample shows a contrary evidence against the literature as ULK2 is supposed to be among the down-regulated genes Howe[@wang2026]. Furthermore, MAOB is a gene responsible in producing MPP+ which can cause a cell death to dopamine producing cell which caused Parkinson's disease [@tan2022]. While some other gene such as RNF166 that responsible in cell death does belong to up-regulated genes [@oh2020].
+Osverall, 14 genes have higher expression in PD while 9 have lower expression in PD. MAOB shows the strongest gene expression and statistical evidence. PRKAA2 has the strongest evidence among genes higher in PD, while ULK2 has the strongest expression. Among down-regulated genes, PRKAA2 has the strongest statistical evidence, while RNF166 has the highest expression difference. However, these sample shows a contrary evidence against the literature as ULK2 is supposed to be among the down-regulated genes Howe[@wang2026]. Furthermore, MAOB is a gene responsible in producing MPP+ which can cause a cell death to dopamine producing cell which caused Parkinson's disease [@tan2022]. While some other gene such as RNF166 that responsible in cell death does belong to up-regulated genes [@oh2020].
 
 2.  Which gene ontology families do the DE genes belong to?
 
@@ -252,7 +250,7 @@ de_go_summary <- top_tibble_updated %>%
   # Define significance using adjusted p-values.
   filter(adj.P.Val < 0.05) %>%
   mutate(entrezid = as.character(entrezid)) %>%
-  # Add GO categories by matching Entrez IDs.
+  # Add GO categories by matching Entrez IDs.Transmute function act just like select function creating a new dataframe containing the specified 
   inner_join(
     gene_ontology %>%
       transmute(
@@ -269,8 +267,8 @@ de_go_summary <- top_tibble_updated %>%
   group_by(go_id, category) %>%
   summarise(
     de_genes = n_distinct(entrezid),
-    up_in_pd = sum(logFC > 0),
-    down_in_pd = sum(logFC < 0),
+    upregulated_in_pd = sum(logFC > 0),
+    downregulated_in_pd = sum(logFC < 0),
     gene_names = paste(sort(unique(gene_name)), collapse = ","),
 .groups ="drop"
   ) %>%
@@ -279,7 +277,7 @@ de_go_summary <- top_tibble_updated %>%
 de_go_summary_table <- knitr::kable(de_go_summary)
 de_go_summary_table
 
-#downloading packages to write in excel file
+# downloading packages to write in excel file
 install.packages("writexl")
 writexl::write_xlsx(
   de_go_summary,
@@ -293,7 +291,6 @@ These tables summarise DE genes that are up-regulated and down-regulated and gro
 3.  Is the clustering of samples by gene expression consistent with their disease status as cases and controls?
 
 ```{r}
-
 # Find top 30 most significant genes to label
 top_de_genes <- vol_plot_data_fct %>%
   slice_min(n = 30, p_value)
@@ -318,8 +315,6 @@ heatmap <- pheatmap(
   fontsize_row = 6
 )
 #save your heatmap by right click on your plot 
-
-
 ```
 
 Red indicates expression above the mean across samples, and blue indicates expression below the mean across samples. The differences in color intensity represent row z-scores, comparing samples within each gene. Green and pink represent the control and PD groups; dendrograms show groups with similar profiles.
@@ -327,3 +322,56 @@ Red indicates expression above the mean across samples, and blue indicates expre
 Cases 1-5 show a clear, distinct grouping. Generally, have higher expression of autophagy-associated genes such as PRKAA2, ATG12, and ULK2, and lower expression of MAOB, MAOA, and COX7A1. While cases 6-8 cluster with controls. The clustering is partly consistent with disease status, but does not have a clear separation of cases from controls.
 
 There are 30 selected genes, including 23 significant genes and 7 non-significant genes. The heatmap showed disease-associated patterns and not independent validations.
+
+**Bring it all together questions** 4. Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
+
+```{r}
+# %^&* Use hits_info already created in the drug-screen report.
+# Match its target symbols to gene names in the RNA-seq results.
+drug_rna_go_overlap <- hits_info %>%
+  dplyr::select(pair_id, hgnc_symbol, action) %>%
+  left_join(
+top_tibble_updated %>%
+  transmute(
+    gene_name,
+    entrezid = as.character(entrezid),
+    logFC,
+    adj.P.Val
+  ),
+by = c("hgnc_symbol" = "gene_name")
+  ) %>%
+  # Keep every hit target and classify its RNA-seq result.
+  # Positive logFC means higher in PD for Case - Control.
+  mutate(
+RNA_result = case_when(
+  is.na(entrezid) ~ "Not matched in RNA-seq results",
+  adj.P.Val < 0.05 & logFC > 0 ~ "Higher in PD",
+  adj.P.Val < 0.05 & logFC < 0 ~ "Lower in PD",
+  TRUE ~ "Not DE"
+)
+  ) %>%
+  # Add GO terms using the matched Entrez IDs.
+  left_join(
+gene_ontology %>%
+  transmute(
+    entrezid = as.character(entrezgene_id),
+    go_id,
+    GO_category = desc
+  ) %>%
+  distinct(),
+by = "entrezid"
+  ) %>%
+  arrange(adj.P.Val)
+
+# creating a neat table to display all hit targets, including non-significant or unmatched ones.
+knitr::kable(
+  drug_rna_go_overlap,
+  digits = 4,
+  caption = "Drug-screen hit targets: RNA-seq results and GO annotations"
+)
+
+```
+
+Two targets from 4 significant hit compounds were differentially expressed between PD cases and healthy controls. Cmpd_5177 targets COX7A1 were downregulated in PD, including cmpd_5041 targets FXN. However, cmpd_6281 targeting COX6A2 was not significant, and COX7A2 was absent from the RNA-seq count. Both significantly expressed targets were annotated to the oxidative phosphorylation family in GO datasets with GO id: 0006119.
+
+Both of the expressed data associated with mitochondrial dysfunnction which is consistent with PD dysfunction. RNA sequencing data do not measure protein activity directly or mitochondrial respiration, and the drug screen used neurons isolated from a single donor under MMP+ stress. Validation in PD-derived neurons, target engagement, and mitochondrial-function measurement would be necessary to test the proposed mechanism.
