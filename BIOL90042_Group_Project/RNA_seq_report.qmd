@@ -220,7 +220,7 @@ vol_plot_image<- ggplot(
     size = 0.1
   ) +
   geom_point(data = vol_plot_data_fct %>% 
-               filter(status != "Not DE"), size = 1) + 
+               filter(status != "Not DE"), size = 2) + 
   geom_vline(xintercept = c(-1,1), color = "black", linetype = "dashed") + 
   geom_hline(yintercept = -log10(0.05), color ="black", linetype = "dashed") +
   geom_text_repel(
