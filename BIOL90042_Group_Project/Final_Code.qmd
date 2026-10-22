@@ -15,6 +15,23 @@ load("data/prs.Rda")
 ```
 Question 1: Calculate PRS for each patient and and determine which participant has the highest and lowest score.
 ```{r}
+# loading all the library
+library(tidyverse)
+library(edgeR)
+library(limma)
+library(dplyr)
+library(ggplot2)
+library(RNAseq123)
+library(pheatmap)
+library(ggrepel)
+```
+
+```{r}
+library(tidyverse)
+
+# Read in Datasets
+load("data/prs.Rda")
+
 # Pivot the data longer so that beta can be assigned to each locus for each individual
 genotypes_longer <- ca_co_genotypes |> 
   pivot_longer(
@@ -54,6 +71,9 @@ Question 2: Plot and describe (with descriptive statistics) the distribution of 
 ```{r}
 # Density plot gives a good perspective on the shift that status has with polygenic risk score
 PRS_Distribution <- ggplot(data = prs_scores, aes(x = PRS, colour = status))+
+```{r}
+# Density plot gives a good perspective on the shift that status has with polygenic risk status
+ggplot(data = prs_scores, aes(x = PRS, colour = status))+
   geom_density() +
   labs (x = "Polygenic Risk Score",
         y = "Density",
@@ -154,18 +174,6 @@ This section analyse the RNA-seq data using these dataset:
 
 ## Running Code
 
-```{r}
-# loading all the library
-library(tidyverse)
-library(edgeR)
-library(limma)
-library(dplyr)
-library(ggplot2)
-library(RNAseq123)
-library(pheatmap)
-library(ggrepel)
-```
-
 **Step 1: Loads our data**
 
 ```{r}
@@ -221,7 +229,6 @@ TMM normalisations remove an extreme log fold changes and normalise it on remain
 ```{r}
 #creating MDS Plot
 plotMDS(dge, labels = dge$samples$group)
-
 
 ```
 
@@ -783,29 +790,17 @@ No missing values, therefore continue with analysis
 Next a count applied to participants in each group will check to confirm allocation has been appropriately achieved.
 
 ```{r}
-
 group_summary <- gait_data |>
-  count(
-    treatment,
-    exercise,
-    name = "Participants",
-    .drop = FALSE
-  ) |>
-  mutate(
-    Percent = round(
-      100 * Participants / sum(Participants),
-      1
-    ),
-    exercise = recode(
+  dplyr::count(treatment, exercise, name = "Participants", .drop = FALSE) |>
+  dplyr::mutate(
+    Percent = round(100 * Participants / sum(Participants), 1),
+    exercise = dplyr::recode(
       as.character(exercise),
       "n" = "No exercise",
       "y" = "Exercise"
     )
   ) |>
-  rename(
-    Treatment = treatment,
-    Exercise = exercise
-  )
+  dplyr::rename(Treatment = treatment, Exercise = exercise)
 
 print(group_summary, n = Inf, width = Inf)
 ```
@@ -856,7 +851,7 @@ participant_characteristics <- gait_data |>
     Participant = participant_label,
     `Donor ID` = donorid,
     Treatment = treatment,
-    Exercise = recode(
+    Exercise = dplyr::recode(
       as.character(exercise),
       "n" = "No",
       "y" = "Yes"
@@ -866,7 +861,7 @@ participant_characteristics <- gait_data |>
 
 # Combine characteristics and statistics into one presentation table
 participant_summary <- participant_characteristics |>
-  left_join(
+  dplyr::left_join(
     participant_stats |>
       dplyr::select(
         donorid,
@@ -880,13 +875,13 @@ participant_summary <- participant_characteristics |>
       ),
     by = c("Donor ID" = "donorid")
   ) |>
-  mutate(
-    across(
+  dplyr::mutate(
+    dplyr::across(
       c(mean_gait, median_gait, sd_gait, iqr_gait, rms_gait),
       ~ round(.x, 2)
     )
   ) |>
-  rename(
+  dplyr::rename(
     Readings = n_observations,
     Missing = n_missing,
     `Mean (°)` = mean_gait,
@@ -3539,6 +3534,37 @@ Two targets from the four significant hit compounds were differentially expresse
 COX7A2 is a gene that encodes a subunit of mitochondrial complex IV that contributes to ATP production [@lucchesi2025]. FXN encodes frataxin, which is a mitochondrial protein required for the synthesis of iron-sulphur clusters, which are essential components of the respiratory chain. Downregulation of this gene is consistent with the impaired mitochondrial respiration found in PD patients [@uceda2021]. Since both compounds are annotated as agonists and improved viability following MPP+ exposure, they warrant investigation as potential enhancers of mitochondrial function.
 
 4.  Is there any relationship between the PRS and gait of patients in the clinical trial?
+
+```{r}
+# Load the PRS data
+load("data/prs.Rda")
+
+# Match each participant's gait RMS score with their PRS
+gait_prs <- participant_summary |>
+  dplyr::select(`Donor ID`, `RMS (°)`) |>
+  dplyr::inner_join(
+    prs_scores |>
+      dplyr::select(donorid, PRS),
+    by = c("Donor ID" = "donorid")
+  ) |>
+  tidyr::drop_na(`RMS (°)`, PRS)  # Keep complete pairs only
+
+# Check and view the number of matched participants and their data
+nrow(gait_prs)
+gait_prs
+
+# Fit a linear regression predicting gait RMS from PRS
+prs_gait_model <- lm(`RMS (°)` ~ PRS, data = gait_prs)
+
+# View the model results
+summary(prs_gait_model)
+```
+
+There was no statistically significant evidence of a linear relationship between PRS and gait RMS among the 16 clinical trial participants (β = −0.78, p = 0.592).
+
+A one-unit increase in PRS was associated with an estimated 0.78° decrease in gait RMS, but this estimate was uncertain. PRS explained only 2.1% of the variation in RMS scores (R² = 0.021).
+
+These results do not establish that no relationship exists; the small sample limits the ability to detect an association. This model also does not account for age, treatment, or exercise.
 
 5.  In a paragraph, summarise your findings and suggest directions for future research.
 
