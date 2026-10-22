@@ -4,6 +4,55 @@ format: html
 ---
 
 ```{r}
+# loading all the library
+library(tidyverse)
+library(edgeR)
+library(limma)
+library(dplyr)
+library(ggplot2)
+library(RNAseq123)
+library(pheatmap)
+library(ggrepel)
+```
+
+```{r}
+library(tidyverse)
+
+# Read in Datasets
+load("data/prs.Rda")
+
+# Pivot the data longer so that beta can be assigned to each locus for each individual
+genotypes_longer <- ca_co_genotypes |> 
+  pivot_longer(
+    cols = starts_with("locus_"),
+    names_to = "locus",
+    values_to = "allele_frequency"
+  )
+# Assign the beta value to each locus for each individual
+genotypes_longer_beta <- left_join(
+  genotypes_longer,
+  gwas_top_hits,
+  by = "locus"
+)
+
+# Determine the contribution of each SNP towards the PRS
+genotypes_longer_beta_contribution <- genotypes_longer_beta |> 
+  mutate(contribution = allele_frequency * beta)
+
+# Sum each SNP's contribution to the PRS for each individual, noting disease status
+prs_scores <- genotypes_longer_beta_contribution |> 
+  group_by(donorid,status) |> 
+  summarise(PRS=sum(contribution)) |>
+  ungroup()
+
+# Find Individual with highest and lowest PRS
+prs_scores |> 
+  slice_max(PRS, n = 1)
+prs_scores |> 
+  slice_min(PRS, n = 1)
+```
+
+```{r}
 # Density plot gives a good perspective on the shift that status has with polygenic risk status
 ggplot(data = prs_scores, aes(x = PRS, colour = status))+
   geom_density() +
@@ -55,18 +104,6 @@ This section analyse the RNA-seq data using these dataset:
   The dataset comparing PD neurons with induced pluripotent stem cell (iPSCs) from 8 patients with Parkinson's Disease (PD) and 8 healthy patients. the cells were differentiated into dopaminergic neurons then the RNA were sequenced.
 
 ## Running Code
-
-```{r}
-# loading all the library
-library(tidyverse)
-library(edgeR)
-library(limma)
-library(dplyr)
-library(ggplot2)
-library(RNAseq123)
-library(pheatmap)
-library(ggrepel)
-```
 
 **Step 1: Loads our data**
 
@@ -123,7 +160,6 @@ TMM normalisations remove an extreme log fold changes and normalise it on remain
 ```{r}
 #creating MDS Plot
 plotMDS(dge, labels = dge$samples$group)
-
 
 ```
 
@@ -668,7 +704,7 @@ gait_long <- gait_data |>
 
 *Plot each participants' gait data and describe it using descriptive statistics. Which of these descriptive statistics do you think is most useful for capturing the overall gait smoothness and balance of a participant?*
 
-#### Check for Missing Values: 
+#### Check for Missing Values:
 
 ```{r}
 sum(is.na(gait_data))
@@ -681,29 +717,17 @@ No missing values, therefore continue with analysis
 Next a count applied to participants in each group will check to confirm allocation has been appropriately achieved.
 
 ```{r}
-
 group_summary <- gait_data |>
-  count(
-    treatment,
-    exercise,
-    name = "Participants",
-    .drop = FALSE
-  ) |>
-  mutate(
-    Percent = round(
-      100 * Participants / sum(Participants),
-      1
-    ),
-    exercise = recode(
+  dplyr::count(treatment, exercise, name = "Participants", .drop = FALSE) |>
+  dplyr::mutate(
+    Percent = round(100 * Participants / sum(Participants), 1),
+    exercise = dplyr::recode(
       as.character(exercise),
       "n" = "No exercise",
       "y" = "Exercise"
     )
   ) |>
-  rename(
-    Treatment = treatment,
-    Exercise = exercise
-  )
+  dplyr::rename(Treatment = treatment, Exercise = exercise)
 
 print(group_summary, n = Inf, width = Inf)
 ```
@@ -764,7 +788,7 @@ participant_characteristics <- gait_data |>
 
 # Combine characteristics and statistics into one presentation table
 participant_summary <- participant_characteristics |>
-  left_join(
+  dplyr::left_join(
     participant_stats |>
       dplyr::select(
         donorid,
@@ -778,13 +802,13 @@ participant_summary <- participant_characteristics |>
       ),
     by = c("Donor ID" = "donorid")
   ) |>
-  mutate(
-    across(
+  dplyr::mutate(
+    dplyr::across(
       c(mean_gait, median_gait, sd_gait, iqr_gait, rms_gait),
       ~ round(.x, 2)
     )
   ) |>
-  rename(
+  dplyr::rename(
     Readings = n_observations,
     Missing = n_missing,
     `Mean (°)` = mean_gait,
@@ -1647,7 +1671,7 @@ ggsave(
 )
 ```
 
-#### Interpretation of Boxplots: 
+#### Interpretation of Boxplots:
 
 Most participants’ measurements are centred near 0°, meaning they tend to lean neither consistently left nor right. The new-compound group generally has smaller boxes and shorter whiskers, suggesting less variation in their angles than the L-DOPA group. Participant 11 shows the most variation, while Participant 15 shows the least. The red dots represent unusually high or low readings for each participant, but these are not necessarily errors. The graph suggests a treatment difference, although statistical analysis is needed to assess it.
 
@@ -2799,7 +2823,7 @@ The new-compound group had a lower mean RMSSD (10.21°) than the L-DOPA group (1
 
 After excluding participant d209, the difference decreased to −3.94° (95% CI: −8.37° to 0.49°; *p* = 0.0755). The direction remained consistent, but the result no longer reached the 0.05 threshold, showing that statistical significance was sensitive to this participant’s inclusion.
 
-### Question 3: 
+### Question 3:
 
 *Does either of age or the exercise regime affect gait? If so, take this into consideration when investigating the relationship between the treatment and gait.*
 
@@ -3014,7 +3038,7 @@ print(rms_sensitivity_results, n = Inf, width = Inf)
 
 All p-values remained \<0.001, and all confidence intervals exlcuded 0. Therefore sensitivity analyses showed that excluding d204 or d216 individually did not materially change the adjusted treatment difference. The new compound remained associated with lower RMS than L-DOPA after accounting for exercise and age. This supports the robustness of the treatment finding to either participant’s individual influence; all participants were retained in the primary analysis.
 
-#### Interaction Model: 
+#### Interaction Model:
 
 To further assess the influence of age and exercise on the gait data between the treatment groups, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
 
@@ -3252,7 +3276,7 @@ print(rmssd_sensitivity_results, n = Inf, width = Inf)
 
 Sensitivity analyses showed that excluding d204 or d216 individually did not materially change the adjusted treatment finding. The new compound remained associated with lower RMSSD than L-DOPA after accounting for exercise and age. This supports the robustness of the finding to either participant’s individual influence; all participants were retained in the main analysis.
 
-#### Interaction Model: 
+#### Interaction Model:
 
 To further assess the influence of age and exercise on the gait data between the treatment groups for RMSSD, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
 
@@ -3289,7 +3313,7 @@ local({
 
 Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMSSD model compared with the additive model (*F*(3, 9) = 0.281, *p* = 0.838). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained for the main analysis. Given the small sample size and wide confidence intervals, these findings indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
 
-#### Answer to Question 3: 
+#### Answer to Question 3:
 
 Through this statistical analysis it is observed that both age and exercise regime affect the gait balance and smoothness for participants. This means that the greatest chance of improving gait balance/smoothness is in a combination of both new compound and exercise. Although, the degenerative impact of the disease is shown in the continued decrease in gait balance/smoothness with age. Further longitudinal studies will need to investigate the long-term impact of both new compound and exercise combination in participants over time as they continue to age and develop Parkinson's Disease pathology.
 
@@ -3301,7 +3325,7 @@ After observing the significant affects of all three variables on the outcome of
 
 2.  Do any variables other than gene expression distinguish the RNA-seq cases from controls? (Hint: try colouring points on your MDS plot by other information you have about the donors, from the other datasets)
 
-3. Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
+3.  Are any of the gene targets of hit compounds from the drug screen, deferentially expressed in RNA-seq? Which GO terms are they associated with and what might this tell you about the pathology of PD?
 
 ```{r}
 # %^&* Use hits_info already created in the drug-screen report.
@@ -3355,5 +3379,32 @@ Two targets from 4 significant hit compounds were differentially expressed betwe
 Both of the expressed data associated with mitochondrial dysfunnction which is consistent with PD dysfunction. RNA sequencing data do not measure protein activity directly or mitochondrial respiration, and the drug screen used neurons isolated from a single donor under MMP+ stress. Validation in PD-derived neurons, target engagement, and mitochondrial-function measurement would be necessary to test the proposed mechanism.
 
 4.  Is there any relationship between the PRS and gait of patients in the clinical trial?
+
+```{r}
+load("data/prs.Rda")
+
+donorid_list <- full_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid") 
+
+donorid_list |> 
+  summarise(n=n())    
+
+donorid_data <- inner_join(
+  ca_co_genotypes,
+  gait_data,
+  by = "donorid"
+)
+donorid_data |> 
+  summarise(n=n()) 
+
+gait_prs <- left_join(
+  donorid_data,
+  prs_scores,
+  by = "donorid")
+gait_prs |> 
+  dplyr::select(donorid,PRS)
+```
 
 5.  In a paragraph, summarise your findings and suggest directions for future research.
