@@ -16,7 +16,7 @@ library(car)
 load("data/prs.Rda")
 ```
 
-### Question 1: 
+### Question 1:
 
 *Calculate PRS for each patient and and determine which participant has the highest and lowest score.*
 
@@ -55,7 +55,7 @@ prs_scores |>
 
 Each participant was assigned a polygenic risk score as seen in the prs_score table. This was calculated by multiplying the number of affected alleles carried at each locus by that specific alleles predetermined effect weighting (beta) from the GWAS data. these weighted contributions were then summed to yield a final PRS. Donor 216 (case) and and 178 (control) had the most extreme PRS with 2.392 and 0.189 respectively.
 
-### Question 2: 
+### Question 2:
 
 *Plot and describe (with descriptive statistics) the distribution of PRS for both cases and controls.*
 
@@ -104,7 +104,7 @@ prs_scores |>
 
 The polygenic risk scores for both cases and controls appear to be normally distributed as demonstrated by the density graph and box-plot. Descriptive statistics show high similarity between mean and median for each status, which is a common indicator of normality. Differences in mean and median for the status is showing a potential difference in polyfenic risk score. Despite this normality assumption, further statistical tests should be conducted as per the answers to the following question.
 
-### Question 3: 
+### Question 3:
 
 *Is there a statistically significant difference in the PRS of cases and controls? Ensure you check all the assumptions of the test you choose.*
 
@@ -224,7 +224,7 @@ dge <- normLibSizes(dge, method = "TMM") # TMM = trimmed mean of M-values
 dge$samples
 ```
 
-TMM normalisations remove an extreme log fold changes and normalise it on remaining non-differentially expressed genes [@singh2024]. TMM factor range 1.016 to 1.052 in control sample, showing minimal differences in RNA compositions. While in case group ranging from 0.88-1.075, showing a quite diverse different between case sample. These adjust the compositions of the library sizes and not measures the biological variability.
+TMM normalisations remove an extreme log fold changes and normalise it on remaining non-differentially expressed genes [@singh2024]. TMM factor range 1.016 to 1.052 in control sample, showing minimal differences in RNA compositions. While in case group ranging from 0.886-1.075, showing a quite diverse different between case sample. These adjust the compositions of the library sizes and not measures the biological variability.
 
 #### **Step 4: MDS Plot, visualise raw data**
 
@@ -314,7 +314,7 @@ top_tibble_updated
 
 ### Answering the questions
 
-### **Question 1:** 
+### **Question 1:**
 
 ***Which genes are differentially expressed between PD cases and healthy controls? Please also visualise your DE results with appropriate plot(s)***
 
@@ -393,7 +393,7 @@ Overall, 14 genes are more highly expressed in PD, while 9 are less highly expre
 
 PRKAA2 has the strongest statistical evidence, whereas RNF166 has the largest increase in expression. Both of these upregulations suggest a transcriptional change in autophagy initiation and cellular energy regulation. ULK2, which has the second-highest expression, helps initiate autophagy, whereas PRKAA2 encodes the α2 catalytic subunit of the energy-sensing AMPK complex. This increased expression could represent a compensatory response to cellular stress. However, these results shown a contrast expression compared to the study done by [@wang2026] and [@hang2021] that shown a reduction on both genes. RNF166 upregulation is also noteworthy because experimental work has shown that RNF166 can promote apoptosis through ubiquitination and degradation of the anti-apoptotic protein XIAP. Nevertheless, increased RNF166 RNA alone does not demonstrate increased neuronal death in these samples [@oh2020].
 
-### Question 2: 
+### Question 2:
 
 *Which gene ontology families do the DE genes belong to?*
 
@@ -442,7 +442,7 @@ These tables summarize DE genes according to their biological process annotation
 
 Seven downregulated genes were associated with the dopamine-related category: LRTOMT, MAOA, MAOB, MOXD1, PDE1B, SULT1A1, and SULT1A3. Some of the genes in this category, for example, MAOA, MAOB, SULT1A1, and SULT1A3, are responsible for supporting PD progression. Two downregulated genes associated with oxidative phosphorylation were COX7A1 and FXN. COX7A1 encodes a subunit of mitochondrial respiratory-chain complex IV, whereas FXN encodes frataxin, which supports iron–sulfur protein maturation and mitochondrial function. Their reduced expression is consistent with published evidence of decreased expression of mitochondrial electron-transport genes in PD [@uceda2021; @lucchesi2025].
 
-### Question 3: 
+### Question 3:
 
 *Is the clustering of samples by gene expression consistent with their disease status as cases and controls?*
 
@@ -554,7 +554,7 @@ count(plate_long, pair_id, type) |> count(n)
 all(plate_long$pair_id %in% compound_dict$id)
 ```
 
-## **Question 1:** 
+## **Question 1:**
 
 *Using the `geom_tile()` function, visualise the luminescence across the plate. Do there appear to be any spatial patterns in this data?*
 
@@ -634,7 +634,7 @@ ggsave("result/drug_q1_layout.png", p_layout, width = 8, height = 5, dpi = 300)
 
 To check for spatial patterns, I plotted the luminescence (RLU) of each of the 1,536 wells at its physical position using geom_tile(). Luminescence was broadly uniform, with most wells between approximately 450 and 550 RLU. There was no evidence of an edge effect: the median RLU of the 156 outer wells (499.5) was virtually identical to that of the 1,380 inner wells (499.0). Row medians ranged from 490.5 to 507.5 and column medians from 485 to 511.5, a spread small relative to the well-to-well standard deviation (32.9 RLU), so there was no evidence of row, column or gradient effects. Eighteen wells had luminescence more than 3 standard deviations above the mean of the control wells (\> 577 RLU). All 18 contained test compounds and none contained a control compound, and they were scattered across the plate rather than clustered. This is consistent with compound-specific effects rather than a positional artefact, and is tested formally in Q2. I therefore did not apply a plate-position correction.
 
-## **Question 2:** 
+## **Question 2:**
 
 ***Which compounds are statistically significantly associated with increased neuronal viability after MPP exposure? Ensure that you check your assumptions.***
 
@@ -722,7 +722,7 @@ p_hits
 ggsave("result/drug_q2_hits.png", p_hits, width = 9, height = 4, dpi = 300)
 ```
 
-## **Question 3:** 
+## **Question 3:**
 
 ***What are the mechanisms of action and targets of the compounds you identify in Q2?***
 
