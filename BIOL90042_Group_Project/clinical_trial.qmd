@@ -2183,63 +2183,429 @@ After excluding participant d209, the difference decreased to −3.94° (95% CI:
 
 *Does either of age or the exercise regime affect gait? If so, take this into consideration when investigating the relationship between the treatment and gait.*
 
-Accounting for exercise and age, Using RMS:
+To investigate whether age or exercise regime affected gait differences between participants receiving L-DOPA and the new compound, participant-level root mean square (RMS) gait deviation was again selected as the primary outcome. A multiple linear regression model will be used to investigate this using treatment, exercise and age as predictors.
+
+#### Multiple Linear Regression (RMS):
+
+**Assumptions:**
+
+**Independence:** Assessed from the study design. Each participant contributes one score to each model, with no known matching or clustering between participants.
+
+**Linearity:** The relationship between age and the outcome, after accounting for treatment and exercise, will be assessed using a partial residual plot for age. A roughly straight pattern supports modelling age as a linear predictor.
+
+**Normality of residuals:** Assessed using a residual Q–Q plot, supported by a Shapiro–Wilk test interpreted cautiously because the sample is small. Points approximately following the reference line support this assumption.
+
+**Constant residual variance:** Assessed using residual-versus-fitted and scale–location plots. A reasonably consistent spread, without a funnel-shaped pattern, supports this assumption.
+
+**Influential observations:** Assessed using studentised residuals, leverage, and Cook’s distance. Potentially influential participants will be investigated, with sensitivity analyses used where warranted rather than automatically excluding them.
 
 ```{r}
-model_adjusted <- lm(
+# Prepare a copy with explicit reference groups
+rms_model_data <- participant_stats |>
+  mutate(
+    treatment = relevel(factor(treatment), ref = "L-DOPA control"),
+    exercise = relevel(factor(exercise), ref = "n")
+  ) |>
+  as.data.frame()
+
+# Label diagnostic observations with donor IDs
+rownames(rms_model_data) <- rms_model_data$donorid
+
+# Fit the adjusted RMS model
+model_rms <- lm(
   rms_gait ~ treatment + exercise + age,
-  data = participant_stats
+  data = rms_model_data,
+  na.action = na.fail
 )
 
-summary(model_adjusted)
-confint(model_adjusted)
+# Function to draw all diagnostic plots
+draw_rms_diagnostics <- function() {
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(
+    mfrow = c(2, 3),
+    mar = c(4, 4, 3, 1)
+  )
+  
+  # Linearity: partial residual plot for age
+  # Black = fitted linear relationship; blue = smoothed pattern
+  termplot(
+    model_rms,
+    terms = "age",
+    partial.resid = TRUE,
+    smooth = panel.smooth,
+    col.term = "black",
+    col.smth = "#0072B2",
+    col.res = "grey40",
+    pch = 16,
+    main = "Linearity: age",
+    xlabs = "Age (years)",
+    ylabs = "Partial residuals"
+  )
+  
+  # Normality: residual Q–Q plot
+  plot(model_rms, which = 2, sub.caption = "", ask = FALSE)
+  
+  # Mean pattern and variance: residuals versus fitted values
+  plot(model_rms, which = 1, sub.caption = "", ask = FALSE)
+  
+  # Constant variance: scale–location plot
+  plot(model_rms, which = 3, sub.caption = "", ask = FALSE)
+  
+  # Influence: Cook's distance for each participant
+  plot(model_rms, which = 4, sub.caption = "", ask = FALSE)
+  
+  # Leverage and residual size
+  plot(model_rms, which = 5, sub.caption = "", ask = FALSE)
+}
 
-# Test each predictor while accounting for the other two
-drop1(model_adjusted, test = "F")
+# Display the diagnostic plots
+draw_rms_diagnostics()
+
+# Save the diagnostic plots as an image
+png(
+  filename = "rms_adjusted_model_diagnostics.png",
+  width = 15,
+  height = 9,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+draw_rms_diagnostics()
+dev.off()
+
+# Supplement the Q–Q plot with a residual normality test
+shapiro.test(residuals(model_rms))
+
+# List participant-level influence measures
+rms_influence <- tibble(
+  donorid = rownames(model.frame(model_rms)),
+  studentised_residual = unname(rstudent(model_rms)),
+  leverage = unname(hatvalues(model_rms)),
+  cooks_distance = unname(cooks.distance(model_rms))
+) |>
+  arrange(desc(cooks_distance))
+
+print(rms_influence, n = Inf, width = Inf)
 ```
 
-Running graph for Root Square Means:
+Diagnostic checks broadly supported the adjusted RMS model. The age relationship appeared approximately linear, and residual plots showed no clear evidence of non-constant variance. The residual Q–Q plot and Shapiro–Wilk test (*W* = 0.982, *p* = 0.974) were consistent with approximate normality. Participants d204 and d216 had relatively large studentised residuals, with d204 showing the greatest Cook’s distance (0.293). Given the small sample size, these findings were interpreted cautiously. Sensitivity analyses were therefore warranted to assess whether these participants materially affected the estimated treatment difference. All participants were retained in the main analysis.
+
+#### Results of Multiple Linear Regression Model (RMS):
 
 ```{r}
-ggplot(
-  participant_stats,
-  aes(x = treatment, y = rms_gait)
-) +
-  geom_boxplot(
-    width = 0.5,
-    fill = "grey90",
-    outlier.shape = NA
-  ) +
-  geom_point(
-    aes(colour = exercise, size = age),
-    position = position_jitter(width = 0.08, height = 0, seed = 345),
-    alpha = 0.7
-  ) +
-  scale_colour_manual(
-    values = c("n" = "#D55E00", "y" = "#0072B2"),
-    labels = c("n" = "No exercise", "y" = "Exercise"),
-    name = "Exercise"
-  ) +
-  scale_size_continuous(
-    name = "Age (years)",
-    range = c(1, 6),
-    guide = guide_legend(reverse = TRUE)
-  ) +
-  scale_y_continuous(
-    limits = c(0, NA),
-    expand = expansion(mult = c(0, 0.1))
-  ) +
-  labs(
-    title = "Gait deviation from upright by treatment",
-    x = "Treatment",
-    y = "Participant RMS (degrees)"
-  ) +
-  theme_minimal()
+# View adjusted effects of treatment, exercise and age
+summary(model_rms)
+
+# Obtain 95% confidence intervals for the coefficients
+confint(model_rms)
+
+# Extract model coefficients and 95% confidence intervals
+coefficients <- summary(model_rms)$coefficients
+confidence_intervals <- confint(model_rms)
+
+# Create a results table, excluding the intercept
+rms_results <- tibble(
+  Predictor = rownames(coefficients),
+  `Estimate (degrees)` = coefficients[, "Estimate"],
+  `95% CI lower` = confidence_intervals[, 1],
+  `95% CI upper` = confidence_intervals[, 2],
+  `p-value` = coefficients[, "Pr(>|t|)"]
+) |>
+  filter(Predictor != "(Intercept)") |>
+  mutate(
+    Predictor = recode(
+      Predictor,
+      "treatmentNew compound" = "New compound vs L-DOPA",
+      "exercisey" = "Exercise vs no exercise",
+      "age" = "Age (per additional year)"
+    ),
+    across(
+      c(`Estimate (degrees)`, `95% CI lower`, `95% CI upper`),
+      ~ round(.x, 2)
+    ),
+    `p-value` = if_else(
+      `p-value` < 0.001,
+      "<0.001",
+      sprintf("%.3f", `p-value`)
+    )
+  )
+
+# Display the table
+print(rms_results, n = Inf, width = Inf)
+
+# Optional: open in RStudio's data viewer
+# View(rms_results)
 ```
 
-#### 
+Multiple linear regression showed that age and exercise were also associated with RMS gait deviation. After adjustment for treatment and age, exercise was associated with a 3.56° lower mean RMS (95% CI: −4.81° to −2.30°; p \< 0.001). Each additional year of age was associated with a 0.30° increase in mean RMS (95% CI: 0.21° to 0.38°; p \< 0.001). After accounting for both factors, participants receiving the new compound had a mean RMS 3.29° lower than those receiving L-DOPA (95% CI: −4.54° to −2.03°; p \< 0.001), indicating less overall deviation from upright.
+
+However, a sensitivity check still needs to be applied to assess the influence of extreme participant observations.
+
+#### Sensitivity Check RMS:
+
+```{r}
+# Refit without d204
+model_without_d204 <- update(
+  model_rms,
+  data = filter(rms_model_data, donorid != "d204")
+)
+
+# Refit without d216
+model_without_d216 <- update(
+  model_rms,
+  data = filter(rms_model_data, donorid != "d216")
+)
+
+# Extract the adjusted treatment effect from each model
+extract_treatment <- function(model, analysis) {
+  term <- "treatmentNew compound"
+  coefficients <- summary(model)$coefficients
+  ci <- confint(model, parm = term)
+  
+  tibble(
+    Analysis = analysis,
+    Estimate = coefficients[term, "Estimate"],
+    CI_lower = ci[1, 1],
+    CI_upper = ci[1, 2],
+    p_value = coefficients[term, "Pr(>|t|)"]
+  )
+}
+
+# Compare the full and sensitivity models
+rms_sensitivity_results <- bind_rows(
+  extract_treatment(model_rms, "All participants"),
+  extract_treatment(model_without_d204, "Without d204"),
+  extract_treatment(model_without_d216, "Without d216")
+) |>
+  mutate(
+    across(c(Estimate, CI_lower, CI_upper), ~ round(.x, 2)),
+    p_value = if_else(
+      p_value < 0.001,
+      "<0.001",
+      sprintf("%.3f", p_value)
+    )
+  )
+
+print(rms_sensitivity_results, n = Inf, width = Inf)
+```
+
+All p-values remained \<0.001, and all confidence intervals exlcuded 0. Therefore sensitivity analyses showed that excluding d204 or d216 individually did not materially change the adjusted treatment difference. The new compound remained associated with lower RMS than L-DOPA after accounting for exercise and age. This supports the robustness of the treatment finding to either participant’s individual influence; all participants were retained in the primary analysis.
+
+#### Interaction Model: 
+
+To further assess the influence of age and exercise on the gait data between the treatment groups, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
+
+```{r}
+# Add all pairwise interactions, retaining the main effects
+model_rms_interaction <- update(
+  model_rms,
+  . ~ (treatment + exercise + age)^2
+)
+
+# Joint test: do the three interactions improve the additive model?
+anova(model_rms, model_rms_interaction)
+
+# Examine individual interaction estimates and p-values
+summary(model_rms_interaction)
+
+# Obtain 95% confidence intervals
+confint(model_rms_interaction)
+
+# Diagnostic checks before assessing model
+# Review residual normality, variance, patterns and influence
+local({
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(mfrow = c(2, 2))
+  
+  plot(
+    model_rms_interaction,
+    which = c(1, 2, 3, 5),
+    ask = FALSE
+  )
+})
+```
+
+Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMS model compared with the additive model (*F*(3, 9) = 0.328, *p* = 0.806). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained as the main analysis. Given the small sample size and wide interaction confidence intervals, these results indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
+
+#### Multiple Linear Regression (RMSSD):
+
+```{r}
+# Prepare participant-level RMSSD data
+rmssd_model_data <- participant_smoothness |>
+  mutate(
+    treatment = relevel(
+      factor(treatment),
+      ref = "L-DOPA control"
+    ),
+    exercise = relevel(
+      factor(exercise),
+      ref = "n"
+    )
+  ) |>
+  as.data.frame()
+
+# Label diagnostic observations with donor IDs
+rownames(rmssd_model_data) <- rmssd_model_data$donorid
+
+# Fit the model, adjusting for treatment, exercise and age
+model_rmssd <- lm(
+  rmssd_gait ~ treatment + exercise + age,
+  data = rmssd_model_data,
+  na.action = na.fail
+)
+
+# Function to draw diagnostic plots
+draw_rmssd_diagnostics <- function() {
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par))
+  
+  par(
+    mfrow = c(2, 3),
+    mar = c(4, 4, 3, 1)
+  )
+  
+  # Linearity of age: black fitted line and blue smoothed curve
+  termplot(
+    model_rmssd,
+    terms = "age",
+    partial.resid = TRUE,
+    smooth = panel.smooth,
+    col.term = "black",
+    col.smth = "#0072B2",
+    col.res = "grey40",
+    pch = 16,
+    main = "Linearity: age",
+    xlabs = "Age (years)",
+    ylabs = "Partial residuals"
+  )
+  
+  # Normality of residuals
+  plot(model_rmssd, which = 2, sub.caption = "", ask = FALSE)
+  
+  # Residual patterns and spread
+  plot(model_rmssd, which = 1, sub.caption = "", ask = FALSE)
+  
+  # Constant residual variance
+  plot(model_rmssd, which = 3, sub.caption = "", ask = FALSE)
+  
+  # Residual size, leverage and Cook's distance contours
+  plot(model_rmssd, which = 5, sub.caption = "", ask = FALSE)
+  
+  # Leave the final panel blank
+  plot.new()
+}
+
+# Display the diagnostic plots
+draw_rmssd_diagnostics()
+
+# Save the diagnostic plots
+png(
+  filename = "rmssd_adjusted_model_diagnostics.png",
+  width = 15,
+  height = 9,
+  units = "in",
+  res = 300,
+  bg = "white"
+)
+
+draw_rmssd_diagnostics()
+dev.off()
+
+# Supplement the Q–Q plot with a residual normality test
+shapiro.test(residuals(model_rmssd))
+
+# List participant-level influence measures
+rmssd_influence <- tibble(
+  donorid = rownames(model.frame(model_rmssd)),
+  studentised_residual = unname(rstudent(model_rmssd)),
+  leverage = unname(hatvalues(model_rmssd)),
+  cooks_distance = unname(cooks.distance(model_rmssd))
+) |>
+  arrange(desc(cooks_distance))
+
+print(rmssd_influence, n = Inf, width = Inf)
+```
+
+Diagnostic checks broadly supported the adjusted RMSSD model. The age relationship appeared approximately linear, and residual plots showed no clear evidence of non-constant variance. The Q–Q plot and Shapiro–Wilk test (*W* = 0.980, *p* = 0.967) were consistent with approximate residual normality. Participants d204 and d216 showed the greatest influence, so sensitivity analyses were planned to assess the stability of the adjusted treatment estimate. All participants were retained in the main analysis.
+
+#### Results of Multiple Linear Regression Model (RMSSD):
+
+```{r}
+# Display the adjusted RMSSD model results
+summary(model_rmssd)
+
+# Extract coefficients and 95% confidence intervals
+rmssd_coefficients <- summary(model_rmssd)$coefficients
+rmssd_ci <- confint(model_rmssd)
+
+# Create a results table excluding the intercept
+rmssd_results <- tibble(
+  Predictor = rownames(rmssd_coefficients),
+  `Estimate (degrees)` = rmssd_coefficients[, "Estimate"],
+  `95% CI lower` = rmssd_ci[, 1],
+  `95% CI upper` = rmssd_ci[, 2],
+  `p-value` = rmssd_coefficients[, "Pr(>|t|)"]
+) |>
+  filter(Predictor != "(Intercept)") |>
+  mutate(
+    Predictor = recode(
+      Predictor,
+      "treatmentNew compound" = "New compound vs L-DOPA",
+      "exercisey" = "Exercise vs no exercise",
+      "age" = "Age (per additional year)"
+    ),
+    across(
+      c(`Estimate (degrees)`, `95% CI lower`, `95% CI upper`),
+      ~ round(.x, 2)
+    ),
+    `p-value` = if_else(
+      `p-value` < 0.001,
+      "<0.001",
+      sprintf("%.3f", `p-value`)
+    )
+  )
+
+# Display all results
+print(rmssd_results, n = Inf, width = Inf)
+
+# Optional: open the table in RStudio's data viewer
+# View(rmssd_results)
+```
+
+Multiple linear regression showed that age and exercise were also associated with RMSSD gait smoothness. After adjustment for treatment and age, exercise was associated with a 4.96° lower mean RMSSD (95% CI: −6.72° to −3.2°; p \< 0.001). Each additional year of age was associated with a 0.42° increase in mean RMSSD (95% CI: 0.3° to 0.54°; p \< 0.001). After accounting for both factors, participants receiving the new compound had a mean RMSSD 4.55° lower than those receiving L-DOPA (95% CI: −6.31° to −2.27°; p \< 0.001), indicating less overall deviation from upright.
+
+However, a sensitivity check still needs to be applied to assess the influence of extreme participant observations.
+
+#### Sensitivity Check RMSSD:
+
+```{r}
+
+```
+
+#### Interaction Model: 
+
+To further assess the influence of age and exercise on the gait data between the treatment groups for RMSSD, a interaction model can be run to check the interactions between variables. However, as this is a sample of only 16 participants, this analysis needs to be held with caution.
+
+```{r}
+
+```
+
+#### Answer to Question 3: 
+
+Through this statistical analysis it is observed that both age and exercise regime affect the gait balance and smoothness for participants. This means that the greatest chance of improving gait balance/smoothness is in a combination of both new compound and exercise. Although, the degenerative impact of the disease is shown in the continued decrease in gait balance/smoothness with age. Further longitudinal studies will need to investigate the long-term impact of both new compound and exercise combination in participants over time as they continue to age and develop Parkinson's Disease pathology.
+
+After observing the significant affects of all three variables on the outcome of gait balance/smoothness, it was further checked whether there were interaction differences between these variables. Asking whether the effect of new compound was altered with the additional variables of exercise or age. However, there was no significant changes. Meaning that the effect of the new compound had a constant improvement to gait balance/smoothness outside of the effects of exercise regime or age. Therapeutically, this means that this new compound may be universally beneficial to people with Parkinson's Disease regardless of whether they engage in exercise and how early they start treatment.
 
 ### Notes: What needs to be fixed
+
+- Run interaction effects on lm's \[X\]
+
+<!-- -->
 
 - Align titles
 
@@ -2248,3 +2614,5 @@ ggplot(
 - Have all library() functions at the start of the analysis
 
 - Make sure code runs when environment is cleaned
+
+- Put all png outputs into a results folder
