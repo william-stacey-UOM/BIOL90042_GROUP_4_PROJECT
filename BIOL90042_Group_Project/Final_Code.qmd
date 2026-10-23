@@ -750,10 +750,25 @@ All four identified compounds are agonists, and their targets are genes associat
 
 # **Clinical Trial**
 
+#### Install and Load Packages
+
+```{r}
+# install these packages if necessar (remove #)
+
+#install.packages("gganimate")
+#install.packages("gifski")
+#install.packages("paletter")
+#install.packages("tidyverse")
+#install.packages("knitr")
+
+library(tidyverse)
+library(gganimate)
+library(paletteer)
+```
+
 #### Load the Gait data
 
 ```{r}
-library(tidyverse)
 load("data/gait.Rda")
 
 # Assign participant labels and define categorical variables
