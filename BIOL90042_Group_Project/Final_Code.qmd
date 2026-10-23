@@ -1,8 +1,23 @@
 ---
-title: "Final_Code"
-format: html
+title: "Parkinson’s Disease: Integrated Statistical Analysis"
+subtitle: "Population Genetics, RNA-seq, Drug Screening and Clinical Trial"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
 bibliography: references.bib
 ---
+
+```{r}
+#| label: setup
+#| include: false
+
+# Create the folder for saved figures
+dir.create("result", showWarnings = FALSE)
+```
 
 # Population Genetics
 
