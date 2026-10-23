@@ -764,6 +764,8 @@ All four identified compounds are agonists, and their targets are genes associat
 library(tidyverse)
 library(gganimate)
 library(paletteer)
+library(tidyr)
+library(ggplot2)
 ```
 
 #### Load the Gait data
@@ -988,7 +990,7 @@ max_count <- max(vapply(
 ))
 
 # Save the histogram grid as an image
-image_file <- "participant_histograms.png"
+image_file <- "result/participant_histograms.png"
 
 local({
   png(
@@ -1275,7 +1277,10 @@ orientation_animation <- animate(
 )
 
 # Save and display in Quarto HTML
-animation_file <- paste0("stick_figure_", participant, ".gif")
+animation_file <- file.path(
+  "result",
+  paste0("stick_figure_", participant, ".gif")
+)
 
 anim_save(
   filename = animation_file,
@@ -1469,14 +1474,18 @@ orientation_animation <- animate(
   renderer = gifski_renderer()
 )
 
-# Save and display in the rendered Quarto HTML
-animation_file <- paste0("orientation_", participant, ".gif")
+# Save the animation in the result folder
+animation_file <- file.path(
+  "result",
+  paste0("orientation_", participant, ".gif")
+)
 
 anim_save(
   filename = animation_file,
   animation = orientation_animation
 )
 
+# Display in the rendered Quarto HTML
 knitr::include_graphics(animation_file)
 ```
 
@@ -1529,13 +1538,25 @@ if (sum(lengths(groups)) != nrow(gait_data)) {
   stop("Some treatment or exercise labels do not match the four groups.")
 }
 
-# Shared colour scale: blue at 0°, red at ±15° and beyond
+# Shared colour scale: blue at 0°, red at ±20° and beyond
 angle_palette <- colorRampPalette(c("blue", "red"))(256)
 red_threshold <- 20
 
+# Create the result folder if needed
+dir.create("result", showWarnings = FALSE)
+image_file <- "result/participant_walking_orientation.png"
+
 local({
-  old_par <- par(no.readonly = TRUE)
-  on.exit(par(old_par))
+  # Open the image file and close it when this block finishes
+  png(
+    filename = image_file,
+    width = 12,
+    height = 12,
+    units = "in",
+    res = 300,
+    bg = "white"
+  )
+  on.exit(dev.off())
   
   n_rows <- max(lengths(groups))
   n_cols <- length(groups)
@@ -1614,6 +1635,7 @@ local({
       )
       
       points(0, 0, pch = 16, cex = 0.6)
+      
       mtext(
         gait_data$participant_label[i],
         side = 1,
@@ -1639,16 +1661,23 @@ local({
   
   mtext(
     "Walking orientation by participant",
-    outer = TRUE, side = 3, line = 3.5,
+    outer = TRUE,
+    side = 3,
+    line = 3.5,
     font = 2,
     cex = 1.4
   )
   
   mtext(
     "Distance from vertical: blue = 0° | red = 20° and above",
-    outer = TRUE, side = 1, line = 1
+    outer = TRUE,
+    side = 1,
+    line = 1
   )
 })
+
+# Display the saved image in Quarto HTML
+knitr::include_graphics(image_file)
 ```
 
 By grouping these graphs into the four experimental groups, a small pattern can be observed with the new-compound plus exercise group generally showing angles clustered more closely around upright (0°), indicating smaller deviations and less variability (balanced). Participant 15 has the narrowest spread, while Participant 11 in the control/no-exercise group has the widest.
@@ -1703,9 +1732,6 @@ Further visualisation of descriptive statistics will be determined through Boxpl
 Grouped by Treatment Group, ordered by IQR size
 
 ```{r}
-library(tidyr)
-library(ggplot2)
-
 # Order participants by IQR within each treatment
 participant_order <- participant_stats |>
   left_join(
@@ -1763,7 +1789,7 @@ participant_boxplot
 
 # Save a high-resolution image in the working directory
 ggsave(
-  filename = "participant_gait_boxplots.png",
+  filename = "result/participant_gait_boxplots.png",
   plot = participant_boxplot,
   width = 10,
   height = 8,
@@ -1817,7 +1843,7 @@ treatment_boxplot
 
 # Save a high-resolution image
 ggsave(
-  filename = "treatment_gait_boxplots.png",
+  filename = "result/treatment_gait_boxplots.png",
   plot = treatment_boxplot,
   width = 10,
   height = 6,
@@ -1870,7 +1896,7 @@ exercise_boxplot
 
 # Save a high-resolution image
 ggsave(
-  filename = "exercise_gait_boxplots.png",
+  filename = "result/exercise_gait_boxplots.png",
   plot = exercise_boxplot,
   width = 10,
   height = 6,
@@ -1938,7 +1964,7 @@ age_boxplot
 
 # Save a high-resolution image
 ggsave(
-  filename = "age_group_gait_boxplots.png",
+  filename = "result/age_group_gait_boxplots.png",
   plot = age_boxplot,
   width = 10,
   height = 6,
@@ -2095,7 +2121,7 @@ group_participant_boxplot
 
 # Save a high-resolution image
 ggsave(
-  filename = "participant_gait_by_treatment_exercise.png",
+  filename = "result/participant_gait_by_treatment_exercise.png",
   plot = group_participant_boxplot,
   width = 10,
   height = 8,
@@ -2174,7 +2200,7 @@ group_boxplot
 
 # Save a high-resolution image
 ggsave(
-  filename = "group_gait_by_treatment_exercise.png",
+  filename = "result/group_gait_by_treatment_exercise.png",
   plot = group_boxplot,
   width = 10,
   height = 6,
@@ -2199,8 +2225,6 @@ Using RMS data, we are able to generate three different visual descriptive stati
 - Scatterplot of RMS Gait Deviation by Age, with Treatment and Exercise group visualisations
 
 ```{r}
-library(paletteer)
-
 # Ensure the grouping variables are categorical
 plot_data <- participant_stats
 plot_data$treatment <- factor(plot_data$treatment)
@@ -2241,6 +2265,11 @@ ggplot(plot_data, aes(x = treatment, y = rms_gait)) +
   ) +
   theme_minimal()
 
+ggsave(
+  filename = "result/rms_by_treatment.png",
+  width = 10, height = 6, units = "in",
+  dpi = 300, bg = "white"
+)
 
 # Boxplot for Exercise v RMS score
 ggplot(plot_data, aes(x = exercise, y = rms_gait)) +
@@ -2281,6 +2310,11 @@ ggplot(plot_data, aes(x = exercise, y = rms_gait)) +
   ) +
   theme_minimal()
 
+ggsave(
+  filename = "result/rms_by_exercise.png",
+  width = 10, height = 6, units = "in",
+  dpi = 300, bg = "white"
+)
 
 # Scatterplot for Age v RMS score
 ggplot(plot_data, aes(x = age, y = rms_gait)) +
@@ -2310,6 +2344,12 @@ ggplot(plot_data, aes(x = age, y = rms_gait)) +
     y = "Participant RMS (degrees)"
   ) +
   theme_minimal()
+
+ggsave(
+  filename = "result/rms_by_age.png",
+  width = 10, height = 6, units = "in",
+  dpi = 300, bg = "white"
+)
 ```
 
 - **By treatment:** The new-compound group has a lower median RMS than the L-DOPA group, indicating less overall deviation from upright. Exercising participants generally have lower RMS values, particularly in the new-compound group, while older participants tend to have higher values.
@@ -2496,7 +2536,7 @@ angle_change_plot
 
 # Save a 14 × 10 inch PNG at 300 dots per inch
 ggsave(
-  filename = "participant_angle_changes_over_time.png",
+  filename = "result/participant_angle_changes_over_time.png",
   plot = angle_change_plot,
   width = 14,
   height = 10,
@@ -2591,7 +2631,7 @@ smoothness_plot
 
 # Save a high-resolution image
 ggsave(
-  filename = "participant_gait_rmssd.png",
+  filename = "result/participant_gait_rmssd.png",
   plot = smoothness_plot,
   width = 11,
   height = 8,
@@ -2710,7 +2750,7 @@ rms_boxplot <- ggplot(
 rms_boxplot
 
 ggsave(
-  filename = "rms_treatment_assumptions.png",
+  filename = "result/rms_treatment_assumptions.png",
   plot = rms_boxplot,
   width = 8,
   height = 6,
@@ -2809,7 +2849,7 @@ rmssd_qq_plot <- ggplot(
 rmssd_qq_plot
 
 ggsave(
-  filename = "rmssd_qq_plots.png",
+  filename = "result/rmssd_qq_plots.png",
   plot = rmssd_qq_plot,
   width = 10,
   height = 5,
@@ -2866,7 +2906,7 @@ rmssd_boxplot <- ggplot(
 rmssd_boxplot
 
 ggsave(
-  filename = "rmssd_treatment_assumptions.png",
+  filename = "result/rmssd_treatment_assumptions.png",
   plot = rmssd_boxplot,
   width = 8,
   height = 6,
@@ -3011,7 +3051,7 @@ draw_rms_diagnostics()
 
 # Save the diagnostic plots as an image
 png(
-  filename = "rms_adjusted_model_diagnostics.png",
+  filename = "result/rms_adjusted_model_diagnostics.png",
   width = 15,
   height = 9,
   units = "in",
@@ -3162,18 +3202,36 @@ confint(model_rms_interaction)
 
 # Diagnostic checks before assessing model
 # Review residual normality, variance, patterns and influence
+dir.create("result", showWarnings = FALSE)
+image_file <- "result/rms_interaction_diagnostics.png"
+
 local({
-  old_par <- par(no.readonly = TRUE)
-  on.exit(par(old_par))
+  # Save the diagnostic plots as a high-resolution image
+  png(
+    filename = image_file,
+    width = 12,
+    height = 10,
+    units = "in",
+    res = 300,
+    bg = "white"
+  )
   
+  # Close the image device when this block finishes
+  on.exit(dev.off())
+  
+  # Arrange the four diagnostic plots in a 2 × 2 grid
   par(mfrow = c(2, 2))
   
+  # Plot residual normality, variance, patterns and influence
   plot(
     model_rms_interaction,
     which = c(1, 2, 3, 5),
     ask = FALSE
   )
 })
+
+# Display the saved image in Quarto
+knitr::include_graphics(image_file)
 ```
 
 Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMS model compared with the additive model (*F*(3, 9) = 0.328, *p* = 0.806). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained as the main analysis. Given the small sample size and wide interaction confidence intervals, these results indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
@@ -3250,31 +3308,29 @@ draw_rmssd_diagnostics <- function() {
 draw_rmssd_diagnostics()
 
 # Save the diagnostic plots
-png(
-  filename = "rmssd_adjusted_model_diagnostics.png",
-  width = 15,
-  height = 9,
-  units = "in",
-  res = 300,
-  bg = "white"
-)
+dir.create("result", showWarnings = FALSE)
+image_file <- "result/rmssd_adjusted_model_diagnostics.png"
 
-draw_rmssd_diagnostics()
-dev.off()
+# Save the diagnostic plots
+local({
+  png(
+    filename = image_file,
+    width = 15,
+    height = 9,
+    units = "in",
+    res = 300,
+    bg = "white"
+  )
+  
+  # Close the image device when this block finishes
+  on.exit(dev.off())
+  
+  # Draw the diagnostic plots using the existing function
+  draw_rmssd_diagnostics()
+})
 
-# Supplement the Q–Q plot with a residual normality test
-shapiro.test(residuals(model_rmssd))
-
-# List participant-level influence measures
-rmssd_influence <- tibble(
-  donorid = rownames(model.frame(model_rmssd)),
-  studentised_residual = unname(rstudent(model_rmssd)),
-  leverage = unname(hatvalues(model_rmssd)),
-  cooks_distance = unname(cooks.distance(model_rmssd))
-) |>
-  arrange(desc(cooks_distance))
-
-print(rmssd_influence, n = Inf, width = Inf)
+# Display the diagnostic plots in Quarto
+knitr::include_graphics(image_file)
 ```
 
 Diagnostic checks broadly supported the adjusted RMSSD model. The age relationship appeared approximately linear, and residual plots showed no clear evidence of non-constant variance. The Q–Q plot and Shapiro–Wilk test (*W* = 0.980, *p* = 0.967) were consistent with approximate residual normality. Participants d204 and d216 showed the greatest influence, so sensitivity analyses were planned to assess the stability of the adjusted treatment estimate. All participants were retained in the main analysis.
@@ -3399,18 +3455,36 @@ summary(model_rmssd_interaction)
 confint(model_rmssd_interaction)
 
 # Check the interaction model's residual diagnostics
+dir.create("result", showWarnings = FALSE)
+image_file <- "result/rmssd_interaction_diagnostics.png"
+
 local({
-  old_par <- par(no.readonly = TRUE)
-  on.exit(par(old_par))
+  # Save the diagnostic plots as a high-resolution image
+  png(
+    filename = image_file,
+    width = 12,
+    height = 10,
+    units = "in",
+    res = 300,
+    bg = "white"
+  )
   
+  # Close the image device when this block finishes
+  on.exit(dev.off())
+  
+  # Arrange the four diagnostic plots in a 2 × 2 grid
   par(mfrow = c(2, 2))
   
+  # Plot residual normality, variance, patterns and influence
   plot(
     model_rmssd_interaction,
     which = c(1, 2, 3, 5),
     ask = FALSE
   )
 })
+
+# Display the saved image in Quarto
+knitr::include_graphics(image_file)
 ```
 
 Adding treatment–exercise, treatment–age, and exercise–age interactions did not significantly improve the RMSSD model compared with the additive model (*F*(3, 9) = 0.281, *p* = 0.838). None of the individual interactions was statistically significant, and adjusted R² decreased. The additive model was therefore retained for the main analysis. Given the small sample size and wide confidence intervals, these findings indicate insufficient evidence of interaction rather than demonstrating that interaction effects are absent.
