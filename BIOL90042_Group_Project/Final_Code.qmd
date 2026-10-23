@@ -444,8 +444,8 @@ de_go_summary <- top_tibble_updated %>%
 de_go_summary_table <- knitr::kable(de_go_summary)
 de_go_summary_table
 
-# downloading packages to write in excel file
-install.packages("writexl")
+# downloading packages to write in excel file if needed
+#install.packages("writexl")
 writexl::write_xlsx(
   de_go_summary,
   "result/rna_Q2_gene_ontology.xlsx"
